@@ -1,0 +1,20 @@
+[package]
+name = "thoth-terminal"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+thoth-core.workspace = true
+color-eyre.workspace = true
+ratatui-textarea.workspace = true
+tui-markdown.workspace = true
+unicode-width.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+
+[dev-dependencies]
+thoth-core = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

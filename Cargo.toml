@@ -1,0 +1,41 @@
+[workspace]
+members = ["crates/core", "crates/terminal", "crates/thoth"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+thoth-core = { path = "crates/core" }
+thoth-terminal = { path = "crates/terminal" }
+anyhow = "1.0.104"
+color-eyre = "0.6.5"
+globset = "0.4"
+ignore = "0.4.33"
+regex = "1"
+crossterm = "0.29"
+ratatui = "0.30.2"
+ratatui-textarea = "0.9.3"
+reqwest = { version = "0.13.5", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
+serde_json = { version = "1", features = ["raw_value"] }
+similar = "3.2.0"
+tokio = { version = "1.54.0", features = ["full"] }
+tui-markdown = "0.3.12"
+unicode-width = "0.2"
+
+
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+cargo = "warn"
+correctness = "warn"
+complexity = "warn"
+perf = "warn"
+style = "warn"
+
