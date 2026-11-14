@@ -1,10 +1,10 @@
 use alloc::sync::Arc;
 
+use crate::agent::Agent;
 use crate::agent::context::Context as AgentContext;
 use crate::agent::delegation::Delegation;
 use crate::agent::skills::SkillSet;
 use crate::agent::tools::tool::Outcome as ToolResult;
-use crate::agent::{Agent, Event as AgentEvent};
 use crate::agent_builder::AgentBuilder;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::client::StreamedCompletion;
@@ -15,6 +15,7 @@ use crate::llm::provider::Model;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::persona::{Persona, Repository as PersonaRepository, Selection};
 use crate::test::temp_tree::TempTree;
+use crate::transcript::Observed;
 
 pub type Script = Vec<Result<StreamedCompletion, ClientError>>;
 
@@ -84,17 +85,17 @@ pub async fn turn(agent: &Agent) -> (Vec<(String, ToolResult)>, Vec<String>) {
     let mut results = Vec::new();
     let mut order = Vec::new();
     agent
-        .respond("go".into(), |event| match event {
-            AgentEvent::ToolStarted { id, .. } => order.push(format!("start {id}")),
-            AgentEvent::ToolFinished { id, result, .. } => {
+        .respond("go".into(), |event| match Observed::of(event) {
+            Observed::ToolStarted { id, .. } => order.push(format!("start {id}")),
+            Observed::ToolFinished { id, result, .. } => {
                 order.push(format!("finish {id}"));
                 results.push((id, result));
             },
-            AgentEvent::Text(_)
-            | AgentEvent::Reasoning(_)
-            | AgentEvent::StepStarted { .. }
-            | AgentEvent::ToolProgress { .. }
-            | AgentEvent::Notice(_) => {},
+            Observed::Text(_)
+            | Observed::Reasoning(_)
+            | Observed::Step(_)
+            | Observed::ToolProgress { .. }
+            | Observed::Notice(_) => {},
         })
         .await
         .unwrap();

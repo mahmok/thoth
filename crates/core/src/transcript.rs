@@ -66,6 +66,59 @@ pub enum Change {
     Replaced(Item),
 }
 
+#[derive(Debug, Clone)]
+/// An Agent event, taken apart once. Everything that reads the event stream matches this rather
+/// than the event enum, so a new event variant is read in one place.
+pub enum Observed {
+    /// A fragment of the reply.
+    Text(String),
+    /// A fragment of the model's thinking.
+    Reasoning(String),
+    /// Something the user should know about the Turn.
+    Notice(String),
+    /// A model call is starting; steps are numbered from 1 within a Turn.
+    Step(usize),
+    /// A Tool call is starting.
+    ToolStarted {
+        /// The id of the call.
+        id: String,
+        /// A short description of the call.
+        summary: String,
+    },
+    /// A running Tool call reports a status line.
+    ToolProgress {
+        /// The id of the call.
+        id: String,
+        /// What the call is doing.
+        status: String,
+    },
+    /// A Tool call finished.
+    ToolFinished {
+        /// The id of the call.
+        id: String,
+        /// A short description of the call.
+        summary: String,
+        /// What the Tool returned.
+        result: ToolResult,
+    },
+}
+
+impl Observed {
+    /// Reads `event`. This is the one place the Agent's event enum is matched.
+    #[must_use]
+    pub fn of(event: AgentEvent) -> Self {
+        match event {
+            AgentEvent::Text(delta) => Self::Text(delta),
+            AgentEvent::Reasoning(delta) => Self::Reasoning(delta),
+            AgentEvent::Notice(text) => Self::Notice(text),
+            AgentEvent::StepStarted { step } => Self::Step(step),
+            AgentEvent::ToolStarted { id, summary } => Self::ToolStarted { id, summary },
+            AgentEvent::ToolProgress { id, status } => Self::ToolProgress { id, status },
+            AgentEvent::ToolFinished { id, summary, result } => Self::ToolFinished { id, summary, result },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 /// What the user sees.
 pub struct Transcript {
@@ -79,17 +132,17 @@ impl Transcript {
     #[must_use]
     #[inline]
     pub fn agent_event(&self, event: AgentEvent) -> Option<Change> {
-        Some(match event {
-            AgentEvent::Text(delta) => self.streamed(Speaker::Agent, delta),
-            AgentEvent::Reasoning(delta) => self.streamed(Speaker::Thinking, delta),
-            AgentEvent::Notice(text) => self.said(Speaker::Notice, text),
-            AgentEvent::StepStarted { .. } => return None,
-            AgentEvent::ToolStarted { id, summary } => {
+        Some(match Observed::of(event) {
+            Observed::Text(delta) => self.streamed(Speaker::Agent, delta),
+            Observed::Reasoning(delta) => self.streamed(Speaker::Thinking, delta),
+            Observed::Notice(text) => self.said(Speaker::Notice, text),
+            Observed::Step(_) => return None,
+            Observed::ToolStarted { id, summary } => {
                 let call = ToolCall::running(id, summary, now_ms());
                 Change::Added(self.new_item(Content::Tool(call)))
             },
-            AgentEvent::ToolProgress { id, status } => return self.tool_progress(&id, status),
-            AgentEvent::ToolFinished { id, summary, result } => self.tool_finished(&id, summary, &result),
+            Observed::ToolProgress { id, status } => return self.tool_progress(&id, status),
+            Observed::ToolFinished { id, summary, result } => self.tool_finished(&id, summary, &result),
         })
     }
 

@@ -4,7 +4,6 @@ use alloc::sync::Arc;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::agent::Agent;
 use crate::agent::context::Context as AgentContext;
 use crate::agent::delegation::Delegation;
 use crate::agent::skills::SkillSet;
@@ -13,6 +12,7 @@ use crate::agent::tools;
 use crate::agent::tools::delegate::Delegate as DelegateTool;
 use crate::agent::tools::message::Messenger as MessageTool;
 use crate::agent::tools::tool_set::ToolSet;
+use crate::agent::{Agent, Change as AgentChange};
 use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::provider::ModelSpec;
 use crate::models::store::Models as ModelsStore;
@@ -60,10 +60,10 @@ impl AgentBuilder {
         {
             let mut model = model.clone();
             model.provider = None;
-            agent.set_model(ModelSpec::new(provider, model));
+            agent.apply(AgentChange::SetModel(ModelSpec::new(provider, model)));
         }
         if let Some(thinking) = persona.thinking {
-            agent.set_thinking(thinking);
+            agent.apply(AgentChange::SetThinking(thinking));
         }
         #[cfg(any(test, feature = "testing"))]
         let finished = self.with_test_client(agent);

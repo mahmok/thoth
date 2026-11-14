@@ -341,3 +341,6 @@ impl Harness {
         self
     }
 }
+
+#[cfg(test)]
+mod tests;
