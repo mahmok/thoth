@@ -522,7 +522,11 @@ mod tests {
         use crate::auth::store::Credentials as CredentialStore;
         use crate::llm::provider::{Protocol, Provider};
 
-        let auth = Auth::new(Provider::ollama(), Protocol::Responses, Arc::new(CredentialStore::in_memory()));
+        let auth = Auth::new(
+            Provider::builtin("ollama").unwrap(),
+            Protocol::Responses,
+            Arc::new(CredentialStore::in_memory()),
+        );
         let client = Client::new(Config { model: "m".into(), auth });
         let tools = [ToolSpec { name: "t".into(), description: "d".into(), parameters: json!({ "type": "object" }) }];
         let ask = |listed, tool_choice| CreateCompletionRequest { tools: listed, tool_choice, ..Default::default() };
@@ -542,7 +546,11 @@ mod tests {
         use crate::auth::store::Credentials as CredentialStore;
         use crate::llm::provider::{Protocol, Provider};
 
-        let auth = Auth::new(Provider::ollama(), Protocol::Responses, Arc::new(CredentialStore::in_memory()));
+        let auth = Auth::new(
+            Provider::builtin("ollama").unwrap(),
+            Protocol::Responses,
+            Arc::new(CredentialStore::in_memory()),
+        );
         let client = Client::new(Config { model: "m".into(), auth });
         let request = CreateCompletionRequest::default();
         let first = client.body_json(&request, Setting::Nothing);

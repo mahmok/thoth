@@ -572,7 +572,10 @@ mod tests {
             model: "m".into(),
             max_tokens: 99,
             auth: Auth::for_model(
-                &ModelSpec::new(Arc::new(Provider::ollama()), Model::new("m").with_protocol(Some(Protocol::Anthropic))),
+                &ModelSpec::new(
+                    Arc::new(Provider::builtin("ollama").unwrap()),
+                    Model::new("m").with_protocol(Some(Protocol::Anthropic)),
+                ),
                 Arc::new(CredentialStore::in_memory()),
             ),
         })

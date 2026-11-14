@@ -215,14 +215,20 @@ mod tests {
     fn credentials_survive_a_restart() {
         let path = temp_path("restart");
         let store = Credentials::open(&path).unwrap();
-        store.write(&Provider::openai(), key("sk-1")).unwrap();
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-1")).unwrap();
         store
-            .write(&Provider::copilot(), Credential::Oauth { refresh: "r".into(), access: "a".into(), expires: 5 })
+            .write(
+                &Provider::builtin("github-copilot").unwrap(),
+                Credential::Oauth { refresh: "r".into(), access: "a".into(), expires: 5 },
+            )
             .unwrap();
 
         let reopened = Credentials::open(&path).unwrap();
-        assert_eq!(reopened.read(&Provider::openai()), Some(key("sk-1")));
-        assert!(matches!(reopened.read(&Provider::copilot()), Some(Credential::Oauth { expires: 5, .. })));
+        assert_eq!(reopened.read(&Provider::builtin("openai").unwrap()), Some(key("sk-1")));
+        assert!(matches!(
+            reopened.read(&Provider::builtin("github-copilot").unwrap()),
+            Some(Credential::Oauth { expires: 5, .. })
+        ));
         assert_eq!(reopened.stored(), ["github-copilot", "openai"]);
         fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
     }
@@ -231,7 +237,7 @@ mod tests {
     fn the_file_format_is_type_tagged_per_provider() {
         let path = temp_path("format");
         let store = Credentials::open(&path).unwrap();
-        store.write(&Provider::anthropic(), key("k")).unwrap();
+        store.write(&Provider::builtin("anthropic").unwrap(), key("k")).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(value["anthropic"]["type"], "api_key");
@@ -244,7 +250,7 @@ mod tests {
     fn the_file_and_its_directory_are_private() {
         use std::os::unix::fs::PermissionsExt as _;
         let path = temp_path("mode");
-        Credentials::open(&path).unwrap().write(&Provider::openai(), key("k")).unwrap();
+        Credentials::open(&path).unwrap().write(&Provider::builtin("openai").unwrap(), key("k")).unwrap();
         let file = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         let dir = fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777;
         assert_eq!((file, dir), (0o600, 0o700));
@@ -255,9 +261,9 @@ mod tests {
     fn deleting_removes_the_credential_from_disk() {
         let path = temp_path("delete");
         let store = Credentials::open(&path).unwrap();
-        store.write(&Provider::openai(), key("k")).unwrap();
-        store.delete(&Provider::openai()).unwrap();
-        assert_eq!(Credentials::open(&path).unwrap().read(&Provider::openai()), None);
+        store.write(&Provider::builtin("openai").unwrap(), key("k")).unwrap();
+        store.delete(&Provider::builtin("openai").unwrap()).unwrap();
+        assert_eq!(Credentials::open(&path).unwrap().read(&Provider::builtin("openai").unwrap()), None);
         fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
     }
 
@@ -274,25 +280,28 @@ mod tests {
     #[test]
     fn an_in_memory_store_keeps_values_without_touching_disk() {
         let store = Credentials::in_memory();
-        store.write(&Provider::openai(), key("k")).unwrap();
-        assert_eq!(store.read(&Provider::openai()), Some(key("k")));
+        store.write(&Provider::builtin("openai").unwrap(), key("k")).unwrap();
+        assert_eq!(store.read(&Provider::builtin("openai").unwrap()), Some(key("k")));
     }
 
     #[test]
     fn a_saved_login_wins_over_the_environment_and_local_providers_need_nothing() {
         let store = Credentials::in_memory().with_env("OPENAI_API_KEY", "sk-env").with_env("ANTHROPIC_API_KEY", "sk-a");
-        assert_eq!(store.source(&Provider::ollama()), Some(Source::Local));
-        assert_eq!(store.source(&Provider::openai()), Some(Source::Environment("sk-env".into())));
-        store.write(&Provider::openai(), key("sk-stored")).unwrap();
-        assert_eq!(store.source(&Provider::openai()), Some(Source::Stored(key("sk-stored"))));
-        assert_eq!(store.source(&Provider::copilot()), None);
-        assert!(store.can_use(&Provider::anthropic()) && !store.can_use(&Provider::copilot()));
+        assert_eq!(store.source(&Provider::builtin("ollama").unwrap()), Some(Source::Local));
+        assert_eq!(store.source(&Provider::builtin("openai").unwrap()), Some(Source::Environment("sk-env".into())));
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-stored")).unwrap();
+        assert_eq!(store.source(&Provider::builtin("openai").unwrap()), Some(Source::Stored(key("sk-stored"))));
+        assert_eq!(store.source(&Provider::builtin("github-copilot").unwrap()), None);
+        assert!(
+            store.can_use(&Provider::builtin("anthropic").unwrap())
+                && !store.can_use(&Provider::builtin("github-copilot").unwrap())
+        );
     }
 
     #[test]
     fn an_empty_environment_variable_does_not_count() {
         let store = Credentials::in_memory().with_env("OPENAI_API_KEY", "");
-        assert!(!store.can_use(&Provider::openai()));
+        assert!(!store.can_use(&Provider::builtin("openai").unwrap()));
     }
 
     #[test]

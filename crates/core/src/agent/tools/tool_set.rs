@@ -16,22 +16,7 @@ impl fmt::Display for DuplicateTool {
     }
 }
 
-impl error::Error for DuplicateTool {
-    #[inline]
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
-
-    #[inline]
-    fn description(&self) -> &'static str {
-        "a Tool name was registered twice"
-    }
-
-    #[inline]
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
+impl error::Error for DuplicateTool {}
 
 #[derive(Default, Debug)]
 /// The Tools an Agent can call.

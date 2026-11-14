@@ -26,10 +26,10 @@ pub fn stored(id: &str, protocol: Option<Protocol>) -> Model {
 pub fn store_with(entries: &[(&str, Listing<'_>)]) -> Arc<InMemoryModelsStore> {
     let store = Arc::new(InMemoryModelsStore::default());
     for &(id, models) in entries {
-        let mut provider = store.read(id).expect("the provider is built in").as_ref().clone();
+        let mut provider = store.provider(id).expect("the provider is built in").as_ref().clone();
         provider.models = models.iter().map(|&(model, protocol)| stored(model, protocol)).collect();
         provider.checked_at = 1;
-        store.write(&provider).unwrap();
+        store.save(&provider).unwrap();
     }
     store
 }

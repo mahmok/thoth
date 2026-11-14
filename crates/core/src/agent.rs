@@ -155,22 +155,7 @@ impl fmt::Display for Failure {
     }
 }
 
-impl error::Error for Failure {
-    #[inline]
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
-
-    #[inline]
-    fn description(&self) -> &'static str {
-        "an Agent's turn failed"
-    }
-
-    #[inline]
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
+impl error::Error for Failure {}
 
 #[derive(Default, Debug)]
 /// The cancellation tokens of running work.
@@ -192,9 +177,9 @@ impl Drop for ActiveGuard<'_> {
     }
 }
 #[derive(Debug)]
-/// A model and its client.
+/// A model and its client, or the reason its protocol has no client.
 struct Current {
-    client: Arc<AnyClient>,
+    client: Result<Arc<AnyClient>, String>,
     spec: ModelSpec,
 }
 
@@ -250,7 +235,11 @@ impl Agent {
 
     fn client(&self) -> Result<Arc<AnyClient>, Failure> {
         let current = self.current.read_unpoisoned();
-        Ok(Arc::clone(&current.as_ref().ok_or(Failure::NoModel)?.client))
+        let current = current.as_ref().ok_or(Failure::NoModel)?;
+        match current.client {
+            Ok(ref client) => Ok(Arc::clone(client)),
+            Err(ref message) => Err(Failure::Client(ClientError::BadRequest(message.clone()))),
+        }
     }
 
     #[inline]
@@ -567,7 +556,7 @@ impl Agent {
     #[inline]
     /// Switches to `spec`, with a client of its own, and restarts token calibration.
     pub fn set_model(&self, spec: ModelSpec) {
-        let client = Arc::new(AnyClient::for_model(&spec, &self.store));
+        let client = AnyClient::for_model(&spec, &self.store).map(Arc::new).map_err(|e| e.to_string());
         *self.current.write_unpoisoned() = Some(Current { client, spec });
         // Another model counts tokens its own way.
         *self.calibration.lock_unpoisoned() = 1.0;
@@ -697,7 +686,7 @@ impl Agent {
     #[must_use]
     pub fn with_client(self, client: AnyClient) -> Self {
         if let Some(current) = self.current.write_unpoisoned().as_mut() {
-            current.client = Arc::new(client);
+            current.client = Ok(Arc::new(client));
         }
         self
     }
@@ -1103,7 +1092,7 @@ mod tests {
     }
 
     fn test_model() -> ModelSpec {
-        ModelSpec::new(Arc::new(Provider::ollama()), Model::new("test-model"))
+        ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("test-model"))
     }
 
     pub(super) fn build(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
@@ -1756,7 +1745,7 @@ mod tests {
     fn the_model_can_be_switched() {
         let agent = agent(vec![]);
         assert_eq!(agent.model(), Some(test_model()));
-        let other = ModelSpec::new(Arc::new(Provider::openai()), Model::new("gpt-4.1"));
+        let other = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4.1"));
         agent.set_model(other.clone());
         assert_eq!(agent.model(), Some(other));
     }
@@ -1776,7 +1765,7 @@ mod tests {
         let agent = agent(vec![text("a")]);
         assert_eq!(agent.settings(), Settings { model: Some(test_model()), thinking: Thinking::Medium });
         agent.apply(Change::SetThinking(Thinking::Max));
-        let other = ModelSpec::new(Arc::new(Provider::ollama()), Model::new("other"));
+        let other = ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("other"));
         agent.apply(Change::SetModel(other.clone()));
         assert_eq!(agent.settings(), Settings { model: Some(other), thinking: Thinking::Max });
     }
