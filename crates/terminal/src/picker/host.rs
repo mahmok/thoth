@@ -188,7 +188,7 @@ impl PickerHost {
         }
     }
 
-    pub fn view(&self) -> Option<PickerView> {
+    pub fn view(&self) -> Option<PickerView<'_>> {
         self.open.as_ref().map(Picker::view)
     }
 }

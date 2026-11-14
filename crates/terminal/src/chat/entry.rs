@@ -1,14 +1,9 @@
 use thoth_core::transcript::Message;
 
+use super::cache::Cache;
 use super::markdown;
 use super::message::{is_markdown, label_line, lines};
 use super::row::{Row, wrap};
-
-/// Rows wrapped to one width.
-pub(super) struct Layout {
-    pub rows: Vec<Row>,
-    pub width: usize,
-}
 
 /// The front of a markdown message's layout that later text cannot change.
 #[derive(Default)]
@@ -27,35 +22,32 @@ struct Frozen {
 /// message is laid out block by block: blocks that are complete are rendered once and kept,
 /// and only the unfinished one at the end is rendered again as text arrives.
 pub(super) struct Entry {
+    cache: Cache,
     frozen: Frozen,
-    layout: Layout,
-    revision: Option<u64>,
 }
 
 impl Entry {
     /// Brings the rows up to date for `width`. Returns whether there was anything to do.
     pub(super) fn lay_out(&mut self, message: &Message, revision: u64, width: usize) -> bool {
-        if self.revision == Some(revision) && self.layout.width == width {
+        if self.cache.holds(revision, width) {
             return false;
         }
-        if self.layout.width != width {
-            self.layout.rows.clear();
+        if self.cache.set_width(width) {
             self.frozen = Frozen::default();
-            self.layout.width = width;
         }
         if is_markdown(message) {
             self.lay_out_markdown(message, width);
         } else {
-            self.layout.rows = wrap(&lines(message, width), width);
+            self.cache.rows = wrap(&lines(message, width), width);
         }
-        self.layout.rows.push(Row::blank());
-        self.revision = Some(revision);
+        self.cache.rows.push(Row::blank());
+        self.cache.commit(revision);
         true
     }
 
     /// Lays out a markdown message, keeping the rows of blocks that are complete.
     fn lay_out_markdown(&mut self, message: &Message, width: usize) {
-        let rows = &mut self.layout.rows;
+        let rows = &mut self.cache.rows;
         let frozen = &mut self.frozen;
         if frozen.rows == 0 {
             *rows = wrap(&[label_line(message)], width);
@@ -74,11 +66,11 @@ impl Entry {
     }
 
     pub(super) fn new() -> Self {
-        Self { layout: Layout { width: 0, rows: Vec::new() }, frozen: Frozen::default(), revision: None }
+        Self { cache: Cache::default(), frozen: Frozen::default() }
     }
 
     pub(super) fn rows(&self) -> &[Row] {
-        &self.layout.rows
+        &self.cache.rows
     }
 }
 

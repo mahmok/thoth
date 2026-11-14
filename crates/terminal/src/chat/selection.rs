@@ -1,15 +1,25 @@
 use core::ops::Range;
 
 use super::row::Row;
+use crate::select;
 
-/// A row and a column.
-pub(super) type Point = (usize, usize);
+pub(super) use crate::select::Point;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A selection of text in the chat.
 pub(super) struct Selection {
     anchor: Point,
     head: Point,
+}
+
+impl select::RowText for Row {
+    fn width(&self) -> usize {
+        Self::width(self)
+    }
+
+    fn text(&self, columns: Range<usize>) -> String {
+        Self::text(self, columns)
+    }
 }
 
 impl Selection {
@@ -19,13 +29,7 @@ impl Selection {
 
     pub(super) fn columns(&self, index: usize, row_width: usize) -> Option<Range<usize>> {
         let (lo, hi) = self.ordered();
-        if index < lo.0 || index > hi.0 {
-            return None;
-        }
-        let start = if index == lo.0 { lo.1 } else { 0 };
-        let end = if index == hi.0 { hi.1.saturating_add(1) } else { row_width };
-        let (from, to) = (start.min(row_width), end.min(row_width));
-        (from < to).then_some(from..to)
+        select::columns(lo, hi, index, row_width)
     }
 
     pub(super) const fn extend_to(&mut self, head: Point) {
@@ -35,15 +39,8 @@ impl Selection {
     /// The selected text. `rows` are the rows of [`span`](Self::span), in order; any the chat
     /// does not have are left out.
     pub(super) fn extract<'rows>(&self, rows: impl Iterator<Item = &'rows Row>) -> String {
-        let first = self.span().start;
-        rows.enumerate()
-            .map(|(offset, row)| {
-                self.columns(first.saturating_add(offset), row.width())
-                    .map(|columns| row.text(columns))
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        let (lo, hi) = self.ordered();
+        select::extract(lo, hi, rows)
     }
 
     pub(super) fn is_empty(&self) -> bool {

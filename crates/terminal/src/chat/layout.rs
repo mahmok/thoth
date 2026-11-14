@@ -3,14 +3,15 @@ use core::ops::Range;
 use thoth_core::auth::credential::now_ms;
 use thoth_core::transcript::{Content, Item, Transcript};
 
-use super::entry::{Entry, Layout};
+use super::cache::Cache;
+use super::entry::Entry;
 use super::row::{Row, wrap};
 use super::tool_card;
 
 /// A slot laid out as a message or a card.
 enum Laid {
     Message(Entry),
-    Tool(Option<Layout>),
+    Tool(Option<Cache>),
 }
 
 /// One transcript item and its rows.
@@ -19,7 +20,6 @@ struct Slot {
     expanded: bool,
     id: u64,
     laid: Laid,
-    revision: Option<u64>,
 }
 
 impl Slot {
@@ -30,18 +30,16 @@ impl Slot {
                 Content::Message(ref message) => entry.lay_out(message, item.revision, width),
                 Content::Tool(_) => kinds_disagree(),
             },
-            Laid::Tool(ref mut layout) => match item.content {
+            Laid::Tool(ref mut tool) => match item.content {
                 Content::Tool(ref call) => {
-                    let stale = call.is_running()
-                        || self.revision != Some(item.revision)
-                        || layout.as_ref().is_none_or(|laid| laid.width != width);
-                    if stale {
-                        let mut rows = wrap(&tool_card::lines(call, now, self.expanded), width);
-                        rows.push(Row::blank());
-                        *layout = Some(Layout { rows, width });
-                        self.revision = Some(item.revision);
+                    // A running card's clock changes every time it is looked at.
+                    if !call.is_running() && tool.as_ref().is_some_and(|cache| cache.holds(item.revision, width)) {
+                        return false;
                     }
-                    stale
+                    let mut rows = wrap(&tool_card::lines(call, now, self.expanded), width);
+                    rows.push(Row::blank());
+                    tool.get_or_insert_with(Cache::default).replace(item.revision, width, rows);
+                    true
                 },
                 Content::Message(_) => kinds_disagree(),
             },
@@ -53,13 +51,13 @@ impl Slot {
             Content::Message(_) => Laid::Message(Entry::new()),
             Content::Tool(_) => Laid::Tool(None),
         };
-        Self { id: item.id, revision: None, laid, expanded: false }
+        Self { id: item.id, laid, expanded: false }
     }
 
     fn rows(&self) -> &[Row] {
         match self.laid {
             Laid::Message(ref entry) => entry.rows(),
-            Laid::Tool(ref tool) => tool.as_ref().map_or(&[], |laid| &laid.rows),
+            Laid::Tool(ref tool) => tool.as_ref().map_or(&[], |cache| &cache.rows),
         }
     }
 }
@@ -138,7 +136,11 @@ impl ChatLayout {
         }
         slot.expanded = !slot.expanded;
         // Forces the card to be laid out again at its next look.
-        slot.revision = None;
+        if let Laid::Tool(ref mut tool) = slot.laid
+            && let Some(cache) = tool
+        {
+            cache.invalidate();
+        }
         true
     }
 }

@@ -13,7 +13,7 @@ use super::command::{self, Ran};
 use super::header;
 use super::keymap::{self, Context, Effect};
 use super::modes::Modes;
-use super::popup;
+use super::popup::Popup;
 use super::prompt::{Prompt, Submission};
 use crate::picker::{Catalog, Outcome, PickerHost, PickerKey, PromptText};
 use crate::stats;
@@ -44,6 +44,7 @@ pub struct TerminalApp {
     chat: ChatView,
     harness: Client,
     pickers: PickerHost,
+    popup: Popup,
     prompt: Prompt,
     quit: bool,
     /// The login as the last event this app handled left it.
@@ -162,6 +163,7 @@ impl TerminalApp {
             chat: ChatView::default(),
             prompt,
             pickers: PickerHost::default(),
+            popup: Popup::default(),
             submitted: None,
             quit: false,
         }
@@ -325,7 +327,9 @@ impl TerminalApp {
         frame.render_widget(Paragraph::new(model).right_aligned().style(theme::current().secondary()), model_area);
 
         if let Some(picker) = self.pickers.view() {
-            popup::render(frame, &picker, input_area, chat_area, self.harness.view().busy);
+            self.popup.render(frame, &picker, input_area, chat_area, self.harness.view().busy);
+        } else {
+            self.popup.reset();
         }
     }
 
@@ -415,7 +419,7 @@ mod tests {
 
     use super::*;
     use alloc::collections::BTreeSet;
-    use crossterm::event::{KeyCode, KeyModifiers};
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
@@ -466,6 +470,12 @@ mod tests {
             Self::with(ScriptedAgent::new(), None)
         }
 
+        fn mouse(&mut self, kind: MouseEventKind, column: u16, row: u16) {
+            let event = MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
+            self.app.handle_event(Event::Mouse(event));
+            self.app.poll_events();
+        }
+
         fn paste(&mut self, text: &str) {
             self.app.handle_event(Event::Paste(text.to_owned()));
             self.app.poll_events();
@@ -485,12 +495,17 @@ mod tests {
             self.scripted.agent.reply(reply);
         }
 
+        fn resize(&mut self, width: u16, height: u16) {
+            self.terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        }
+
         fn screen(&mut self) -> String {
             self.app.poll_events();
             self.terminal.draw(|frame| self.app.render(frame)).unwrap();
+            let area = self.terminal.size().unwrap();
             let buffer = self.terminal.backend().buffer().clone();
-            (0..HEIGHT)
-                .map(|y| (0..WIDTH).map(|x| buffer[(x, y)].symbol().to_owned()).collect::<String>())
+            (0..area.height)
+                .map(|y| (0..area.width).map(|x| buffer[(x, y)].symbol().to_owned()).collect::<String>())
                 .collect::<Vec<_>>()
                 .join("\n")
         }
@@ -595,6 +610,26 @@ mod tests {
         for expected in ["read_file(a)", "done", "contents", "failed", "outside the working directory"] {
             assert!(screen.contains(expected), "{expected}:\n{screen}");
         }
+    }
+
+    #[test]
+    fn clicking_a_card_header_expands_it() {
+        let mut h = Harness::new();
+        h.send("look");
+        h.reply(Reply::Event(AgentEvent::ToolStarted { id: "1".into(), summary: "bash(ls)".into() }));
+        h.reply(Reply::Event(AgentEvent::ToolFinished {
+            id: "1".into(),
+            summary: "bash(ls)".into(),
+            result: ToolResult::ok("1\n2\n3\n4\n5"),
+        }));
+        let screen = h.screen();
+        let header = u16::try_from(screen.lines().position(|line| line.contains("bash(ls)")).unwrap()).unwrap();
+        assert!(!screen.contains('4'), "{screen}");
+
+        h.mouse(MouseEventKind::Down(MouseButton::Left), 3, header);
+        h.mouse(MouseEventKind::Up(MouseButton::Left), 3, header);
+        let opened = h.screen();
+        assert!(opened.contains('4') && opened.contains('5'), "{opened}");
     }
 
     #[test]
@@ -803,6 +838,23 @@ mod tests {
         within(&mut h, "tool cards");
         h.type_text("/");
         within(&mut h, "picker");
+    }
+
+    #[test]
+    fn resizing_the_terminal_wraps_the_chat_to_the_new_width() {
+        let mut h = Harness::new();
+        h.send("alpha beta gamma delta epsilon zeta eta theta iota kappa");
+        h.done();
+        let wide = h.screen();
+        assert!(wide.lines().any(|line| line.contains("you:") && line.contains("kappa")), "{wide}");
+
+        h.resize(40, HEIGHT);
+        let narrow = h.screen();
+        assert!(narrow.contains("kappa"), "{narrow}");
+        assert!(
+            !narrow.lines().any(|line| line.contains("you:") && line.contains("kappa")),
+            "the message is wrapped again: {narrow}"
+        );
     }
 
     #[test]

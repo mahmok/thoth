@@ -14,6 +14,8 @@ mod client;
 mod clipboard;
 /// Slash commands.
 mod command;
+/// A left-button drag.
+mod drag;
 mod header;
 /// Key bindings.
 mod keymap;
@@ -26,6 +28,8 @@ mod picker;
 mod popup;
 /// The input box.
 mod prompt;
+/// Selecting text from rows.
+mod select;
 /// The token summary line.
 mod stats;
 mod theme;

@@ -7,9 +7,6 @@ use thoth_core::builtin::files::Suggestions;
 pub use crate::keymap::PickerKey;
 pub use host::{Catalog, Outcome, PickerHost, PromptText};
 
-/// Rows a picker shows at once.
-pub const VISIBLE_ROWS: usize = 8;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A row of the picker.
 pub struct Row {
@@ -18,15 +15,33 @@ pub struct Row {
     pub needs_idle: bool,
 }
 
-/// What the popup draws: a window of the matching rows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PickerView {
+/// What the popup draws: the matching rows and the selected one.
+pub struct PickerView<'a> {
     pub empty_message: String,
     /// Drawn before each label, such as the `/` of commands.
     pub prefix: &'static str,
-    pub rows: Vec<Row>,
+    items: &'a [Row],
+    /// The selected row, as an index into [`rows`](Self::rows).
     pub selected: Option<usize>,
     pub title: String,
+    visible: &'a [usize],
+}
+
+impl PickerView<'_> {
+    /// Whether nothing matched.
+    pub const fn is_empty(&self) -> bool {
+        self.visible.is_empty()
+    }
+
+    /// How many rows matched.
+    pub const fn len(&self) -> usize {
+        self.visible.len()
+    }
+
+    /// The matching rows, in order.
+    pub fn rows(&self) -> impl Iterator<Item = &Row> {
+        self.visible.iter().filter_map(|&index| self.items.get(index))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,7 +73,6 @@ enum Kind {
 /// A list the user filters and picks from.
 pub struct Picker {
     empty_message: String,
-    first_row: usize,
     items: Vec<Row>,
     kind: Kind,
     query: String,
@@ -120,19 +134,6 @@ impl Picker {
         matches!(self.kind, Kind::Commands(_))
     }
 
-    fn keep_in_view(&mut self, selected: usize) {
-        let last_start = self.visible.len().saturating_sub(VISIBLE_ROWS);
-        let mut first = self.first_row.min(last_start);
-        if selected < first {
-            first = selected;
-        } else if selected >= first.saturating_add(VISIBLE_ROWS) {
-            first = selected.saturating_add(1).saturating_sub(VISIBLE_ROWS);
-        } else {
-            // The selection is already in view.
-        }
-        self.first_row = first;
-    }
-
     pub fn move_selection(&mut self, delta: isize) {
         let count = isize::try_from(self.visible.len()).unwrap_or(isize::MAX);
         if count == 0 {
@@ -141,20 +142,11 @@ impl Picker {
         let current = isize::try_from(self.selected.unwrap_or(0)).unwrap_or(isize::MAX);
         let selected = usize::try_from(current.saturating_add(delta).rem_euclid(count)).unwrap_or(0);
         self.selected = Some(selected);
-        self.keep_in_view(selected);
     }
 
     fn new(kind: Kind, title: String, items: Vec<Row>, empty_message: String) -> Self {
-        let mut picker = Self {
-            kind,
-            title,
-            items,
-            empty_message,
-            query: String::new(),
-            visible: Vec::new(),
-            selected: None,
-            first_row: 0,
-        };
+        let mut picker =
+            Self { kind, title, items, empty_message, query: String::new(), visible: Vec::new(), selected: None };
         picker.refilter();
         picker
     }
@@ -176,7 +168,6 @@ impl Picker {
             .map(|(index, _)| index)
             .collect();
         self.selected = (!self.visible.is_empty()).then_some(0);
-        self.first_row = 0;
     }
 
     pub const fn scope(&self) -> Scope {
@@ -228,21 +219,14 @@ impl Picker {
         Self::new(Kind::Suggestions(completions), suggestions.title, items, suggestions.empty_message)
     }
 
-    /// The rows to show, with the selection relative to them.
-    pub fn view(&self) -> PickerView {
-        let end = self.first_row.saturating_add(VISIBLE_ROWS).min(self.visible.len());
+    /// The rows to show, and the selected one as an index into them.
+    pub fn view(&self) -> PickerView<'_> {
         PickerView {
             title: self.title.clone(),
             prefix: self.prefix(),
-            rows: self
-                .visible
-                .get(self.first_row..end)
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|&index| self.items.get(index))
-                .cloned()
-                .collect(),
-            selected: self.selected.map(|selected| selected.saturating_sub(self.first_row)),
+            items: &self.items,
+            visible: &self.visible,
+            selected: self.selected,
             empty_message: if self.items.is_empty() { self.empty_message.clone() } else { "no matches".to_owned() },
         }
     }
@@ -299,7 +283,6 @@ pub mod testing {
 mod tests {
     use super::testing::*;
     use super::*;
-    use thoth_core::test::assert_empty;
 
     fn picker() -> Picker {
         Picker::commands(fruit_commands())
@@ -417,37 +400,17 @@ mod tests {
 
     fn shown(picker: &Picker) -> (Vec<String>, Option<usize>) {
         let view = picker.view();
-        (view.rows.into_iter().map(|row| row.label).collect(), view.selected)
+        (view.rows().map(|row| row.label.clone()).collect(), view.selected)
     }
 
     #[test]
-    fn only_a_window_of_rows_is_in_the_view() {
-        let picker = Picker::choices(many_choices());
-        let (rows, selected) = shown(&picker);
-        assert_eq!(rows.len(), VISIBLE_ROWS);
-        assert_eq!((rows[0].as_str(), selected), ("item00", Some(0)));
-    }
-
-    #[test]
-    fn the_window_follows_the_selection_when_it_wraps() {
+    fn the_view_holds_every_match_and_the_selection_is_absolute() {
         let mut picker = Picker::choices(many_choices());
         picker.move_selection(-1);
         let (rows, selected) = shown(&picker);
+        assert_eq!(rows.len(), 20, "the popup decides what fits");
         assert_eq!(rows.last().unwrap(), "item19");
-        assert_eq!(selected, Some(VISIBLE_ROWS - 1));
-    }
-
-    #[test]
-    fn the_window_scrolls_only_when_the_selection_reaches_an_edge() {
-        let mut picker = Picker::choices(many_choices());
-        picker.move_selection(3);
-        assert_eq!(shown(&picker).0[0], "item00");
-        picker.move_selection(5);
-        assert_eq!(shown(&picker).0[0], "item01");
-        picker.move_selection(-5);
-        assert_eq!(shown(&picker).0[0], "item01", "moving up keeps the window until the top row");
-        picker.move_selection(-3);
-        assert_eq!(shown(&picker).0[0], "item00");
+        assert_eq!(selected, Some(19));
     }
 
     #[test]
@@ -455,7 +418,7 @@ mod tests {
         let mut picker = picker();
         picker.set_text("/zzz");
         let view = picker.view();
-        assert_empty(&view.rows);
+        assert_eq!(view.len(), 0);
         assert_eq!(view.empty_message, "no matches");
 
         let empty = Picker::choices(Choices { items: Vec::new(), ..fruit_choices() });

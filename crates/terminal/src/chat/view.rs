@@ -1,4 +1,4 @@
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{MouseEvent, MouseEventKind};
 use ratatui::Frame;
 use ratatui::layout::{Position, Rect};
 use ratatui::text::Line;
@@ -9,6 +9,7 @@ use thoth_core::transcript::Transcript;
 use super::layout::ChatLayout;
 use super::scroll::Scroll;
 use super::selection::{Point, Selection};
+use crate::drag::{Drag, Dragged};
 use crate::theme::{self, Theme};
 
 /// Rows scrolled per wheel notch.
@@ -25,7 +26,7 @@ pub enum ChatAction {
 /// The chat pane.
 pub struct ChatView {
     area: Rect,
-    dragging: bool,
+    drag: Drag,
     layout: ChatLayout,
     scroll: Scroll,
     selection: Option<Selection>,
@@ -38,60 +39,30 @@ impl ChatView {
     pub fn handle_mouse(&mut self, ev: MouseEvent, transcript: &Transcript) -> Option<ChatAction> {
         let inside = inner(self.area).contains(Position::new(ev.column, ev.row));
         match ev.kind {
-            MouseEventKind::ScrollUp if inside => self.scroll.up(WHEEL_STEP),
-            MouseEventKind::ScrollDown if inside => self.scroll.down(WHEEL_STEP),
-            MouseEventKind::Down(MouseButton::Left) if inside => {
-                self.selection = Some(Selection::at(self.point_at(ev.column, ev.row)));
-                self.dragging = true;
+            MouseEventKind::ScrollUp if inside => {
+                self.scroll.up(WHEEL_STEP);
+                None
             },
-            MouseEventKind::Drag(MouseButton::Left) if self.dragging => {
-                let point = self.point_at(ev.column, ev.row);
-                if let Some(selection) = self.selection.as_mut() {
-                    selection.extend_to(point);
-                }
+            MouseEventKind::ScrollDown if inside => {
+                self.scroll.down(WHEEL_STEP);
+                None
             },
-            MouseEventKind::Up(MouseButton::Left) if self.dragging => {
-                self.dragging = false;
-                let selection = self.selection?;
-                if selection.is_empty() {
-                    self.selection = None;
-                    let (row, column) = self.point_at(ev.column, ev.row);
-                    let _laid_out = self.layout.lay_out(transcript, self.width.max(1));
-                    if let Some(card) = self.layout.card_at(row) {
-                        let _toggled = self.layout.toggle_card(card, transcript);
-                        return None;
-                    }
-                    return self
-                        .layout
-                        .rows(row..row.saturating_add(1))
-                        .next()
-                        .and_then(|r| r.url_at(column))
-                        .map(ChatAction::OpenUrl);
-                }
-                let _laid_out = self.layout.lay_out(transcript, self.width.max(1));
-                return Some(ChatAction::Copy(selection.extract(self.layout.rows(selection.span()))));
+            _ => {
+                let mut target = ChatMouse {
+                    area: self.area,
+                    layout: &mut self.layout,
+                    selection: &mut self.selection,
+                    top: self.top,
+                    transcript,
+                    width: self.width,
+                };
+                self.drag.handle(ev, &mut target).flatten()
             },
-            MouseEventKind::Down(_)
-            | MouseEventKind::Up(_)
-            | MouseEventKind::Drag(_)
-            | MouseEventKind::Moved
-            | MouseEventKind::ScrollDown
-            | MouseEventKind::ScrollUp
-            | MouseEventKind::ScrollLeft
-            | MouseEventKind::ScrollRight => {},
         }
-        None
     }
 
     pub fn page_size(&self) -> usize {
         usize::from(inner(self.area).height.max(1))
-    }
-
-    fn point_at(&self, column: u16, row: u16) -> Point {
-        let inner = inner(self.area);
-        let x = column.clamp(inner.x, inner.right().saturating_sub(1).max(inner.x));
-        let y = row.clamp(inner.y, inner.bottom().saturating_sub(1).max(inner.y));
-        (self.top.saturating_add(usize::from(y.saturating_sub(inner.y))), usize::from(x.saturating_sub(inner.x)))
     }
 
     /// Draws the visible rows of the transcript.
@@ -148,6 +119,69 @@ impl ChatView {
     }
 }
 
+/// The chat as a drag target.
+struct ChatMouse<'a> {
+    area: Rect,
+    layout: &'a mut ChatLayout,
+    selection: &'a mut Option<Selection>,
+    top: usize,
+    transcript: &'a Transcript,
+    width: usize,
+}
+
+impl ChatMouse<'_> {
+    fn point_at(&self, column: u16, row: u16) -> Point {
+        point_at(self.area, self.top, column, row)
+    }
+}
+
+impl Dragged for ChatMouse<'_> {
+    type Output = Option<ChatAction>;
+
+    fn contains(&self, ev: MouseEvent) -> bool {
+        inner(self.area).contains(Position::new(ev.column, ev.row))
+    }
+
+    fn pressed(&mut self, ev: MouseEvent) {
+        *self.selection = Some(Selection::at(self.point_at(ev.column, ev.row)));
+    }
+
+    fn moved(&mut self, ev: MouseEvent) {
+        let point = self.point_at(ev.column, ev.row);
+        if let Some(selection) = self.selection.as_mut() {
+            selection.extend_to(point);
+        }
+    }
+
+    fn released(&mut self, ev: MouseEvent) -> Option<ChatAction> {
+        let selection = (*self.selection)?;
+        if selection.is_empty() {
+            *self.selection = None;
+            let (row, column) = self.point_at(ev.column, ev.row);
+            let _laid_out = self.layout.lay_out(self.transcript, self.width.max(1));
+            if let Some(card) = self.layout.card_at(row) {
+                let _toggled = self.layout.toggle_card(card, self.transcript);
+                return None;
+            }
+            return self
+                .layout
+                .rows(row..row.saturating_add(1))
+                .next()
+                .and_then(|r| r.url_at(column))
+                .map(ChatAction::OpenUrl);
+        }
+        let _laid_out = self.layout.lay_out(self.transcript, self.width.max(1));
+        Some(ChatAction::Copy(selection.extract(self.layout.rows(selection.span()))))
+    }
+}
+
+fn point_at(area: Rect, top: usize, column: u16, row: u16) -> Point {
+    let inner = inner(area);
+    let x = column.clamp(inner.x, inner.right().saturating_sub(1).max(inner.x));
+    let y = row.clamp(inner.y, inner.bottom().saturating_sub(1).max(inner.y));
+    (top.saturating_add(usize::from(y.saturating_sub(inner.y))), usize::from(x.saturating_sub(inner.x)))
+}
+
 fn inner(area: Rect) -> Rect {
     Theme::chat_pane().inner(area)
 }
@@ -158,7 +192,7 @@ mod tests {
     use thoth_core::transcript::Speaker;
 
     use super::*;
-    use crossterm::event::KeyModifiers;
+    use crossterm::event::{KeyModifiers, MouseButton};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use thoth_core::agent::tools::tool::Outcome as ToolResult;

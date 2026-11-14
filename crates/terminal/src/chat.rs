@@ -1,3 +1,5 @@
+/// Rows kept between frames.
+mod cache;
 /// One message laid out.
 mod entry;
 /// The transcript wrapped to a width.
