@@ -9,6 +9,7 @@ use crate::chat::ChatAction;
 use crate::clipboard;
 use crate::keymap::{self, Context, Effect};
 use crate::picker::{Outcome, PickerKey, PromptText};
+use crate::toast;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use thoth_core::harness::Event as HarnessEvent;
 use thoth_core::session::event::Event as SessionEvent;
@@ -16,18 +17,17 @@ use thoth_core::session::view::Login as LoginView;
 use thoth_core::transcript::{Change as TranscriptChange, Content, Item, Speaker};
 
 impl TerminalApp {
-    /// Handles one terminal event.
-    pub fn handle_event(&mut self, event: Event) {
+    /// Handles one terminal event. `now` is when it arrived, in milliseconds, so a copy can
+    /// time the toast that says it happened.
+    pub fn handle_event(&mut self, event: Event, now: u64) {
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key(key),
             Event::Mouse(mouse) => {
                 if let Some(text) = self.prompt.handle_mouse(mouse) {
-                    let _unused = clipboard::copy(&text);
+                    self.copy(&text, now);
                 } else {
                     match self.chat.handle_mouse(mouse, &self.harness.view().transcript) {
-                        Some(ChatAction::Copy(text)) => {
-                            let _unused = clipboard::copy(&text);
-                        },
+                        Some(ChatAction::Copy(text)) => self.copy(&text, now),
                         Some(ChatAction::OpenUrl(url)) => browser::open(&url),
                         None => {},
                     }
@@ -49,6 +49,17 @@ impl TerminalApp {
                 self.prompt_changed();
             },
         }
+    }
+
+    /// Copies `text` and says so: the clipboard changes where the user cannot see it. Both
+    /// selection paths come through here, so they cannot drift apart. A failed copy says that
+    /// rather than claiming a success.
+    fn copy(&mut self, text: &str, now: u64) {
+        let (said, timeout) = match clipboard::copy(text) {
+            Ok(()) => ("copied", toast::COPIED),
+            Err(_) => ("copy failed", toast::COPIED),
+        };
+        self.notify(said, timeout, now);
     }
 
     /// Where the user is: which context answers a key, and which hints are shown.

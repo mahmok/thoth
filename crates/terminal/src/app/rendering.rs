@@ -14,8 +14,9 @@ use thoth_core::llm::provider::ModelSpec;
 use unicode_width::UnicodeWidthStr as _;
 
 impl TerminalApp {
-    /// Draws the header, chat, input, picker and footer.
-    pub fn render(&mut self, frame: &mut Frame<'_>) {
+    /// Draws the header, chat, input, picker and footer, then any toast over them. `now` is in
+    /// milliseconds and decides whether a toast is still up.
+    pub fn render(&mut self, frame: &mut Frame<'_>, now: u64) {
         let title = self.title();
 
         let screen = frame.area();
@@ -45,6 +46,9 @@ impl TerminalApp {
         } else {
             self.popup.reset();
         }
+
+        // Under the header rather than in it, and last so it sits above everything else.
+        self.toast.render(frame, screen, header_area.bottom(), now);
     }
 
     /// What the header says the agent is doing: a login that needs the user is waiting on them.

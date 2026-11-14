@@ -14,6 +14,8 @@ use super::client::Client;
 use super::picker::PickerHost;
 use super::popup::Popup;
 use super::prompt::{Prompt, Submission};
+use super::toast::Toast;
+use core::time::Duration;
 use thoth_core::builtin::files::FILE_TRIGGER;
 use thoth_core::session::view::Login as LoginView;
 
@@ -31,6 +33,7 @@ pub struct TerminalApp {
     /// The login as the last event this app handled left it.
     seen_login: LoginView,
     submitted: Option<Submission>,
+    toast: Toast,
 }
 
 impl TerminalApp {
@@ -47,7 +50,19 @@ impl TerminalApp {
             popup: Popup::default(),
             submitted: None,
             quit: false,
+            toast: Toast::default(),
         }
+    }
+
+    /// Shows a toast for `timeout`, replacing any already up. `now` is passed in so tests can
+    /// move time without sleeping.
+    pub fn notify(&mut self, text: impl Into<String>, timeout: Duration, now: u64) {
+        self.toast.show(text, timeout, now);
+    }
+
+    /// Takes a toast down once its time is up. Returns whether the screen has to be redrawn.
+    pub fn expire_toast(&mut self, now: u64) -> bool {
+        self.toast.expire(now)
     }
 }
 
