@@ -6,10 +6,6 @@ pub mod any;
 pub mod chat;
 /// Client errors.
 pub mod error;
-#[cfg(any(test, feature = "testing"))]
-#[expect(clippy::expect_used, reason = "test support: an exhausted script should fail the test")]
-/// A scripted client for tests.
-pub mod fake;
 /// Falling back to settings a model accepts.
 mod negotiation;
 pub mod openai;

@@ -220,15 +220,12 @@ mod tests {
     use super::*;
     use crate::agent::skills::SkillSet;
     use crate::auth::store::Credentials as CredentialStore;
-    use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::any::Client as AnyClient;
-    use crate::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind, Usage};
-    use crate::llm::client::error::Failure as ClientError;
-    use crate::llm::client::fake;
-    use crate::llm::client::fake::Client as FakeClient;
+    use crate::llm::client::chat::Usage;
     use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use crate::test::assert_empty;
+    use crate::test::client::{answer, calls, completion, failure, reply};
+    use crate::test::fixtures::sub_agent;
     use core::iter;
     use core::time::Duration;
     use tokio::sync::mpsc;
@@ -245,21 +242,6 @@ mod tests {
 
     fn agent() -> Agent {
         Agent::new(Arc::new(CredentialStore::in_memory()))
-    }
-
-    /// A Sub-agent whose model replies are `script`.
-    fn scripted(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
-        let fake = FakeClient::new(script);
-        let agent = agent().with_model(spec("sub")).with_client(AnyClient::Fake(fake.clone()));
-        (agent, fake)
-    }
-
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "the fake client's script holds Results, and the caller compares Options"
-    )]
-    fn reply(text: &str) -> Result<StreamedCompletion, ClientError> {
-        Ok(StreamedCompletion { text: text.into(), ..Default::default() })
     }
 
     fn with_limits(max_per_session: usize) -> SubAgents {
@@ -333,11 +315,9 @@ mod tests {
     #[tokio::test]
     async fn a_run_returns_the_reply_under_the_id_with_the_tokens_it_spent() {
         let subs = with_limits(16);
-        let (sub, _) = scripted(vec![Ok(StreamedCompletion {
-            text: "found it".into(),
-            usage: Some(Usage { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, ..Default::default() }),
-            ..Default::default()
-        })]);
+        let mut found = answer("found it");
+        found.usage = Some(Usage { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6, ..Default::default() });
+        let (sub, _) = sub_agent(vec![completion(found)]);
         let id = subs.spawn(&persona("tester"), move || sub).unwrap();
 
         let result = subs.run(&id, "look".into(), &ToolContext::detached()).await;
@@ -356,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn a_failed_run_names_the_sub_agent_and_the_next_message_carries_on() {
         let subs = with_limits(16);
-        let (sub, _) = scripted(vec![Err(fake::failure()), reply("again")]);
+        let (sub, _) = sub_agent(vec![failure(), reply("again")]);
         let id = subs.spawn(&persona("tester"), move || sub).unwrap();
 
         let failed = subs.run(&id, "one".into(), &ToolContext::detached()).await;
@@ -372,7 +352,7 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_root_turn_stops_the_sub_agent_before_it_asks_the_model() {
         let subs = with_limits(16);
-        let (sub, fake) = scripted(vec![reply("never")]);
+        let (sub, fake) = sub_agent(vec![reply("never")]);
         let id = subs.spawn(&persona("tester"), move || sub).unwrap();
         let cancelled = CancellationToken::new();
         cancelled.cancel();
@@ -387,15 +367,8 @@ mod tests {
     #[tokio::test]
     async fn a_spawned_sub_agent_gets_the_delegation_step_limit() {
         let subs = SubAgents::new(Delegation { max_steps: 1, ..Delegation::default() });
-        let unknown_tool = Ok(StreamedCompletion {
-            tool_calls: vec![ToolCall {
-                id: "c".into(),
-                kind: ToolCallKind::Function,
-                function: FunctionCall { name: "nope".into(), arguments: "{}".into() },
-            }],
-            ..Default::default()
-        });
-        let (sub, _) = scripted(vec![unknown_tool, reply("never")]);
+        let unknown_tool = calls(&[("c", "nope", "{}")]);
+        let (sub, _) = sub_agent(vec![unknown_tool, reply("never")]);
         let id = subs.spawn(&persona("tester"), move || sub).unwrap();
 
         let result = subs.run(&id, "go".into(), &ToolContext::detached()).await;
@@ -403,26 +376,10 @@ mod tests {
         assert!(result.content.contains("stopped after 1 tool steps"), "{}", result.content);
     }
 
-    /// A reply that calls a tool which does not exist, so the Turn takes one more step.
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "the fake client's script holds Results, and the caller compares Options"
-    )]
-    fn calls_unknown_tool() -> Result<StreamedCompletion, ClientError> {
-        Ok(StreamedCompletion {
-            tool_calls: vec![ToolCall {
-                id: "c".into(),
-                kind: ToolCallKind::Function,
-                function: FunctionCall { name: "nope".into(), arguments: "{}".into() },
-            }],
-            ..Default::default()
-        })
-    }
-
     #[tokio::test]
     async fn a_run_waits_for_a_free_slot_and_then_runs() {
         let subs = SubAgents::new(Delegation { max_running: 1, ..Delegation::default() });
-        let (sub, _) = scripted(vec![reply("ok")]);
+        let (sub, _) = sub_agent(vec![reply("ok")]);
         let id = subs.spawn(&persona("tester"), move || sub).unwrap();
 
         let held = subs.running.acquire().await.unwrap();
@@ -438,7 +395,7 @@ mod tests {
     #[tokio::test]
     async fn a_run_waiting_for_a_slot_gives_up_when_its_turn_is_cancelled() {
         let subs = SubAgents::new(Delegation { max_running: 1, ..Delegation::default() });
-        let (sub, fake) = scripted(vec![reply("never")]);
+        let (sub, fake) = sub_agent(vec![reply("never")]);
         let id = subs.spawn(&persona("tester"), move || sub).unwrap();
         let _held = subs.running.acquire().await.unwrap();
 
@@ -454,7 +411,7 @@ mod tests {
     #[tokio::test]
     async fn a_sub_agents_steps_and_tool_calls_show_as_progress_on_the_calling_card() {
         let subs = with_limits(16);
-        let (sub, _) = scripted(vec![calls_unknown_tool(), reply("done")]);
+        let (sub, _) = sub_agent(vec![calls(&[("c", "nope", "{}")]), reply("done")]);
         let id = subs.spawn(&persona("tester"), move || sub).unwrap();
         let (progress, mut reports) = mpsc::unbounded_channel();
         let cx =

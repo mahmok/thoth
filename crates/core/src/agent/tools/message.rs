@@ -87,7 +87,8 @@ impl Tool for Messenger {
 mod tests {
     use crate::agent::Agent;
     use crate::agent::delegation::Delegation;
-    use crate::agent::tools::delegation_fixtures::{delegate_calls, reply, result_of, root, tool_calls, turn};
+    use crate::test::client::{reply, tool_calls};
+    use crate::test::fixtures::{result_of, root, turn};
 
     fn names(agent: &Agent) -> Vec<String> {
         agent.tools().definitions().map(|spec| spec.name.clone()).collect()
@@ -97,7 +98,7 @@ mod tests {
     async fn a_message_continues_the_sub_agents_conversation() {
         let (root, fake) = root(
             vec![
-                delegate_calls(&[("c1", r#"{"task":"look","persona":"tester"}"#)]),
+                tool_calls("delegate", &[("c1", r#"{"task":"look","persona":"tester"}"#)]),
                 reply("question?"),
                 tool_calls("message", &[("m1", r#"{"agent_id":"tester-1","text":"more"}"#)]),
                 reply("answer"),
@@ -133,10 +134,10 @@ mod tests {
     async fn a_message_is_read_only_only_to_a_sub_agent_whose_persona_only_reads() {
         let (root, _) = root(
             vec![
-                delegate_calls(&[
-                    ("a", r#"{"task":"1","persona":"reader"}"#),
-                    ("b", r#"{"task":"2","persona":"tester"}"#),
-                ]),
+                tool_calls(
+                    "delegate",
+                    &[("a", r#"{"task":"1","persona":"reader"}"#), ("b", r#"{"task":"2","persona":"tester"}"#)],
+                ),
                 reply("read"),
                 reply("tested"),
                 reply("done"),
@@ -155,10 +156,10 @@ mod tests {
     async fn read_only_messages_in_one_step_run_together() {
         let (root, _) = root(
             vec![
-                delegate_calls(&[
-                    ("a", r#"{"task":"1","persona":"reader"}"#),
-                    ("b", r#"{"task":"2","persona":"reader"}"#),
-                ]),
+                tool_calls(
+                    "delegate",
+                    &[("a", r#"{"task":"1","persona":"reader"}"#), ("b", r#"{"task":"2","persona":"reader"}"#)],
+                ),
                 reply("first"),
                 reply("second"),
                 tool_calls(
@@ -184,7 +185,7 @@ mod tests {
     async fn messages_that_may_edit_run_one_after_another() {
         let (root, _) = root(
             vec![
-                delegate_calls(&[("c1", r#"{"task":"look","persona":"tester"}"#)]),
+                tool_calls("delegate", &[("c1", r#"{"task":"look","persona":"tester"}"#)]),
                 reply("question?"),
                 tool_calls(
                     "message",

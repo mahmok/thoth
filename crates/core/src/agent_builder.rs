@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "testing"))]
 use crate::llm::client::any::Client as AnyClient;
 use alloc::sync::Arc;
 
@@ -22,7 +23,7 @@ use crate::sync::MutexExt as _;
 use crate::workspace::Workspace;
 
 #[cfg(any(test, feature = "testing"))]
-use crate::llm::client::fake::Client as FakeClient;
+use crate::test::client::Client as FakeClient;
 
 #[derive(Debug)]
 /// Builds Agents from Personas.
@@ -182,13 +183,11 @@ fn skills_for(skill_set: &SkillSet, selection: &Selection) -> SkillSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::any::Client as AnyClient;
-    use crate::llm::client::fake::Client as FakeClient;
     use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use crate::models::store::InMemory as InMemoryModelsStore;
     use crate::persona::Repository as PersonaRepository;
+    use crate::test::client::{Client as FakeClient, reply};
     use crate::test::temp_tree::TempTree;
 
     fn builder(tree: &TempTree) -> AgentBuilder {
@@ -252,7 +251,7 @@ mod tests {
     #[tokio::test]
     async fn a_persona_system_prompt_is_sent_with_the_conversation() {
         let tree = TempTree::new("builder-prompt");
-        let fake = FakeClient::new(vec![Ok(StreamedCompletion { text: "ok".into(), ..Default::default() })]);
+        let fake = FakeClient::new(vec![reply("ok")]);
         let agent = builder(&tree)
             .build(
                 &Persona::new("a", "A", "").with_system_prompt("be brief").with_model(Model::reference("ollama", "m")),
@@ -309,7 +308,7 @@ mod tests {
     #[tokio::test]
     async fn a_test_client_serves_every_agent_the_builder_makes() {
         let tree = TempTree::new("builder-fake");
-        let fake = FakeClient::new(vec![Ok(StreamedCompletion { text: "hi".into(), ..Default::default() })]);
+        let fake = FakeClient::new(vec![reply("hi")]);
         let builder = Arc::new(builder(&tree).with_fake_client(fake.clone()));
         let persona = Persona::new("a", "A", "").with_model(Model::reference("ollama", "m"));
         let root = builder.build_root(&persona, registry());

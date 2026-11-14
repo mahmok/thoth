@@ -352,9 +352,9 @@ mod tests {
     use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
     use thoth_core::harness::Event as HarnessEvent;
     use thoth_core::harness::Harness;
-    use thoth_core::models::testing::fixture;
     use thoth_core::test::assert_empty;
-    use thoth_core::test::scripted::Scripted;
+    use thoth_core::test::fixtures::models as fixture;
+    use thoth_core::test::harness::Scripted;
     use thoth_core::transcript::Content;
 
     use thoth_core::persona::Persona;

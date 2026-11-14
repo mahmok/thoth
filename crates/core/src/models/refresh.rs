@@ -139,7 +139,7 @@ mod tests {
     use crate::llm::provider::Protocol;
     use crate::models::store::InMemory as InMemoryModelsStore;
     use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
-    use crate::models::testing::store_with;
+    use crate::test::fixtures::store_with;
 
     struct Rig {
         session: Session,

@@ -182,15 +182,12 @@ fn instruction(focus: Option<&str>, sub_agents: &[SubAgentInfo]) -> String {
 mod tests {
     use super::*;
     use crate::agent::context::{Budget as ContextBudget, Compaction, Context as AgentContext};
-    use crate::agent::tests::{build, text};
-    use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::error::Failure as ClientError;
-    use crate::llm::client::fake;
-    use crate::llm::client::fake::Client as FakeClient;
+    use crate::agent::tests::build;
+    use crate::test::client::{Client, Script, answer, calls, completion, failure, reply};
     use std::path::Path;
 
     /// Compacts once the Conversation is over `budget` tokens, keeping only the latest Turn.
-    fn agent(budget: usize, script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
+    fn agent(budget: usize, script: Script) -> (Agent, Client) {
         let (agent, fake) = build(script);
         let context_budget =
             ContextBudget { elision: None, compaction: Some(Compaction { budget, limit_share: 1.0, keep_recent: 0 }) };
@@ -210,7 +207,7 @@ mod tests {
 
     #[tokio::test]
     async fn older_turns_become_one_summary_and_the_latest_turn_is_kept() {
-        let (agent, fake) = agent(usize::MAX, vec![text("a"), text("b"), text("c"), text("the gist")]);
+        let (agent, fake) = agent(usize::MAX, vec![reply("a"), reply("b"), reply("c"), reply("the gist")]);
         for prompt in ["1", "2", "3"] {
             agent.respond(prompt.into(), |_| {}).await.unwrap();
         }
@@ -229,7 +226,7 @@ mod tests {
 
     #[tokio::test]
     async fn there_is_only_ever_one_summary() {
-        let (agent, _) = agent(usize::MAX, vec![text("a"), text("b"), text("first"), text("c"), text("second")]);
+        let (agent, _) = agent(usize::MAX, vec![reply("a"), reply("b"), reply("first"), reply("c"), reply("second")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
         compact(&agent).await.0.unwrap();
@@ -244,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn asked_for_it_keeps_only_the_latest_turn_however_short_the_conversation() {
-        let (plain, _) = build(vec![text("a"), text("b"), text("c"), text("gist")]);
+        let (plain, _) = build(vec![reply("a"), reply("b"), reply("c"), reply("gist")]);
         let agent = plain.with_context(&AgentContext::new(Path::new("")));
         for prompt in ["1", "2", "3"] {
             agent.respond(prompt.into(), |_| {}).await.unwrap();
@@ -257,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn with_only_the_latest_turn_there_is_nothing_to_compact_and_that_is_no_error() {
-        let (agent, fake) = agent(usize::MAX, vec![text("a")]);
+        let (agent, fake) = agent(usize::MAX, vec![reply("a")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         let (result, events) = compact(&agent).await;
         assert!(matches!(result, Ok(None)));
@@ -268,16 +265,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_model_that_calls_a_tool_instead_of_summarising_is_asked_again_without_tools() {
-        use crate::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
-        let tool_call = Ok(StreamedCompletion {
-            tool_calls: vec![ToolCall {
-                id: "c".into(),
-                kind: ToolCallKind::Function,
-                function: FunctionCall { name: "echo".into(), arguments: "{}".into() },
-            }],
-            ..Default::default()
-        });
-        let (agent, fake) = agent(usize::MAX, vec![text("a"), text("b"), tool_call, text("the gist")]);
+        let tool_call = calls(&[("c", "echo", "{}")]);
+        let (agent, fake) = agent(usize::MAX, vec![reply("a"), reply("b"), tool_call, reply("the gist")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
 
@@ -294,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_or_empty_summary_changes_nothing() {
-        let (agent, _) = agent(usize::MAX, vec![text("a"), text("b"), Err(fake::failure()), text("  ")]);
+        let (agent, _) = agent(usize::MAX, vec![reply("a"), reply("b"), failure(), reply("  ")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
         let before = contents(&agent).await;
@@ -308,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_cancelled_compaction_changes_nothing() {
-        let (agent, _) = agent(usize::MAX, vec![text("a"), text("b"), text("never")]);
+        let (agent, _) = agent(usize::MAX, vec![reply("a"), reply("b"), reply("never")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
         let before = contents(&agent).await;
@@ -325,9 +314,9 @@ mod tests {
 
     #[tokio::test]
     async fn over_budget_a_turn_compacts_first_and_counts_the_summary_usage() {
-        let mut summary = text("gist").unwrap();
+        let mut summary = answer("gist");
         summary.usage = Some(Usage { prompt_tokens: 7, ..Default::default() });
-        let (agent, _) = agent(1, vec![text("a"), text("b"), Ok(summary), text("c")]);
+        let (agent, _) = agent(1, vec![reply("a"), reply("b"), completion(summary), reply("c")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
         let response = agent.respond("3".into(), |_| {}).await.unwrap();
@@ -343,7 +332,7 @@ mod tests {
         // A budget the conversation alone stays under, but not with the tools it is sent with.
         let tools = build(vec![]).0.tools.estimated_tokens();
         assert!(tools > 0);
-        let (agent, fake) = agent(tools, vec![text("a"), text("b"), text("gist"), text("c")]);
+        let (agent, fake) = agent(tools, vec![reply("a"), reply("b"), reply("gist"), reply("c")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
         agent.respond("3".into(), |_| {}).await.unwrap();
@@ -354,7 +343,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_automatic_compaction_does_not_stop_the_turn() {
-        let (agent, _) = agent(1, vec![text("a"), text("b"), Err(fake::failure()), text("c")]);
+        let (agent, _) = agent(1, vec![reply("a"), reply("b"), failure(), reply("c")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
         let response = agent.respond("3".into(), |_| {}).await.unwrap();
@@ -364,7 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn turned_off_it_never_runs() {
-        let (plain, fake) = build(vec![text("a"), text("b"), text("c")]);
+        let (plain, fake) = build(vec![reply("a"), reply("b"), reply("c")]);
         let budget = ContextBudget { elision: None, compaction: None };
         let agent = plain.with_context(&AgentContext::new(Path::new("")).with_budget(budget));
         for prompt in ["1", "2", "3"] {
@@ -395,7 +384,7 @@ mod tests {
         use crate::persona::Persona;
         use alloc::sync::Arc;
 
-        let (agent, _) = agent(usize::MAX, vec![text("a"), text("b"), text("gist")]);
+        let (agent, _) = agent(usize::MAX, vec![reply("a"), reply("b"), reply("gist")]);
         agent
             .sub_agents()
             .spawn(&Persona::new("tester", "Tester", ""), || Agent::new(Arc::new(CredentialStore::in_memory())))

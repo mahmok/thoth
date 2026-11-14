@@ -46,9 +46,6 @@ pub fn builtin(workspace: Workspace) -> ToolSet {
     tools
 }
 
-#[cfg(test)]
-pub mod delegation_fixtures;
-
 pub mod invoke_skill;
 #[cfg(test)]
 mod testing;

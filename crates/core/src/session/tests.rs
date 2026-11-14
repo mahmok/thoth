@@ -7,135 +7,19 @@ use crate::agent::Event as AgentEvent;
 use crate::agent::controller::scripted::Controller as ScriptedAgent;
 use crate::agent::tools::tool::Outcome as ToolResult;
 use crate::auth::flow::LoginEvent;
-use crate::auth::store::Credentials as CredentialStore;
-use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
-use crate::builtin::files::FileReferences;
 use crate::harness::{Event as HarnessEvent, Harness as CoreHarness};
 use crate::llm::client::chat::Usage;
 use crate::llm::provider::Provider;
 use crate::llm::provider::{Model, ModelSpec, Protocol};
 use crate::llm::thinking::Thinking;
 use crate::models::refresh::Event as RefreshEvent;
-use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::store::Models as ModelsStore;
-use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
-use crate::models::testing::{fixture, store_with};
 use crate::session::view::Login as LoginView;
 use crate::test::assert_empty;
-use crate::test::scripted::Scripted;
+use crate::test::fixtures::{models, store_with};
+use crate::test::harness::{Harness, Scripted};
 use crate::transcript::Content;
 use crate::transcript::tool_call::ToolStatus;
-
-/// A session wired to scripted collaborators, driven by calling it the way a client would.
-#[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]
-struct Harness {
-    agent: Rc<ScriptedAgent>,
-    events: Vec<SessionEvent>,
-    files: Arc<FileReferences>,
-    harness: CoreHarness,
-    harness_events: Vec<HarnessEvent>,
-    refresh_worker: Rc<ScriptedRefreshWorker>,
-    store: Arc<CredentialStore>,
-    /// The session this client is viewing; the harness has no say in it.
-    viewing: u64,
-    worker: Rc<ScriptedLoginWorker>,
-}
-
-impl Harness {
-    fn build(agent: Rc<ScriptedAgent>, logged_in: &[Provider], models: Arc<InMemoryModelsStore>) -> Self {
-        let scripted = Scripted::new(agent, logged_in);
-        let mut harness = CoreHarness::new(scripted.services(models));
-        harness.start_session_with(1, Box::new(Rc::clone(&scripted.agent)));
-        Self {
-            harness,
-            viewing: 1,
-            agent: scripted.agent,
-            worker: scripted.worker,
-            refresh_worker: scripted.refresh_worker,
-            store: scripted.store,
-            files: scripted.files,
-            events: Vec::new(),
-            harness_events: Vec::new(),
-        }
-    }
-
-    fn cancel(&mut self) {
-        self.harness.cancel_login();
-        self.harness.cancel_session(self.viewing);
-        self.poll();
-    }
-
-    fn done(&mut self) {
-        self.reply(Reply::Done { usage: None });
-    }
-
-    fn new() -> Self {
-        Self::build(ScriptedAgent::new(), &[], fixture())
-    }
-
-    fn poll(&mut self) {
-        for event in self.harness.poll() {
-            match event {
-                HarnessEvent::Session { id, event: inner } if id == self.viewing => self.events.push(inner),
-                HarnessEvent::Session { .. } => {},
-                HarnessEvent::Notice { speaker, text } => self.session().say(speaker, text),
-                other @ (HarnessEvent::Login(_) | HarnessEvent::SessionClosed(_)) => self.harness_events.push(other),
-            }
-        }
-        let events = self.session().poll();
-        self.events.extend(events);
-    }
-
-    fn reply(&mut self, reply: Reply) {
-        self.agent.reply(reply);
-        self.poll();
-    }
-
-    fn said(&self) -> Vec<(Speaker, String)> {
-        self.view()
-            .transcript
-            .items()
-            .iter()
-            .filter_map(|item| match item.content {
-                Content::Message(ref message) => Some((message.speaker, message.text.clone())),
-                Content::Tool(_) => None,
-            })
-            .collect()
-    }
-
-    fn said_by(&self, speaker: Speaker) -> Vec<String> {
-        self.said().into_iter().filter(|&(who, _)| who == speaker).map(|(_, text)| text).collect()
-    }
-
-    /// Submits `text`; true when the session took it.
-    fn send(&mut self, text: &str) -> bool {
-        self.harness.submit(self.viewing, text.into(), text.into())
-    }
-
-    fn session(&mut self) -> &mut Session {
-        self.harness.session_mut(self.viewing).unwrap()
-    }
-
-    fn text(&mut self, delta: &str) {
-        self.reply(Reply::Event(AgentEvent::Text(delta.to_owned())));
-    }
-
-    fn view(&self) -> &View {
-        self.harness.session(self.viewing).unwrap().view()
-    }
-
-    fn with_agent(agent: Rc<ScriptedAgent>) -> Self {
-        Self::build(agent, &[], fixture())
-    }
-
-    fn with_logged_in(providers: &[Provider]) -> Self {
-        Self::build(ScriptedAgent::new(), providers, fixture())
-    }
-
-    fn with_models(models: Arc<InMemoryModelsStore>) -> Self {
-        Self::build(ScriptedAgent::new(), &[], models)
-    }
-}
 
 fn bonsai() -> ModelSpec {
     ModelSpec::new(
@@ -179,7 +63,7 @@ fn no_skills_means_no_announcement() {
 fn a_startup_notice_is_a_harness_notice_shown_as_an_error() {
     let mut h = Harness::new();
     h.harness =
-        mem::replace(&mut h.harness, CoreHarness::new(Scripted::new(ScriptedAgent::new(), &[]).services(fixture())))
+        mem::replace(&mut h.harness, CoreHarness::new(Scripted::new(ScriptedAgent::new(), &[]).services(models())))
             .with_notice("Could not read auth.json.");
     h.poll();
     assert_eq!(h.said_by(Speaker::Error), ["Could not read auth.json."]);
@@ -657,7 +541,7 @@ fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
     use crate::persona::{Info as PersonaInfo, Persona};
 
     let scripted = Scripted::new(ScriptedAgent::new(), &[]);
-    let mut services = scripted.services(fixture());
+    let mut services = scripted.services(models());
     services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
     let mut harness = CoreHarness::new(services);
     assert_eq!(

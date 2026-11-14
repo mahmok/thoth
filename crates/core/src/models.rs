@@ -2,7 +2,6 @@ pub mod fetch;
 pub mod refresh;
 pub mod store;
 #[cfg(any(test, feature = "testing"))]
-#[expect(clippy::unwrap_used, reason = "test support: a failed setup should fail the test")]
 pub mod testing;
 pub mod worker;
 
@@ -33,7 +32,7 @@ mod tests {
     use super::*;
     use crate::llm::provider::Protocol;
     use crate::test::assert_empty;
-    use testing::{fixture, store_with};
+    use crate::test::fixtures::{models as fixture, store_with};
 
     #[test]
     fn choices_follow_the_provider_order_and_keep_each_models_protocol() {

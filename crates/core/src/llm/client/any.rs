@@ -10,7 +10,7 @@ use super::responses::{Client as ResponsesClient, Config as ResponsesConfig};
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, StreamedCompletion};
 
 #[cfg(any(test, feature = "testing"))]
-use super::fake::Client as FakeClient;
+use crate::test::client::Client as FakeClient;
 
 #[derive(Debug)]
 /// A client of any protocol.
