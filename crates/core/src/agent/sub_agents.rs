@@ -13,9 +13,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agent::delegation::Delegation;
 use crate::agent::tools::tool::{Context as ToolContext, Outcome as ToolResult};
-use crate::agent::{Agent, Event as AgentEvent, Failure as AgentError, Settings};
+use crate::agent::{Agent, Change as AgentChange, Failure as AgentError, Settings};
 use crate::persona::Persona;
 use crate::sync::MutexExt as _;
+use crate::transcript::Observed;
 use crate::workspace::truncate;
 
 /// The first line of a successful Sub-agent result, so the Root agent knows which id to message.
@@ -123,19 +124,19 @@ impl SubAgents {
         };
         inherit_settings(&sub, &cx.settings);
         let mut step = 0;
-        let on_event = |event| match event {
-            AgentEvent::StepStarted { step: now } => {
+        let on_event = |event| match Observed::of(event) {
+            Observed::Step(now) => {
                 step = now;
                 cx.report(format!("{id} · step {step}"));
             },
-            AgentEvent::ToolStarted { summary, .. } => {
+            Observed::ToolStarted { summary, .. } => {
                 cx.report(format!("{id} · step {step} · {summary}"));
             },
-            AgentEvent::Text(_)
-            | AgentEvent::Reasoning(_)
-            | AgentEvent::ToolProgress { .. }
-            | AgentEvent::Notice(_)
-            | AgentEvent::ToolFinished { .. } => {},
+            Observed::Text(_)
+            | Observed::Reasoning(_)
+            | Observed::ToolProgress { .. }
+            | Observed::Notice(_)
+            | Observed::ToolFinished { .. } => {},
         };
         match sub.agent.respond_under(&cx.cancel, task, on_event).await {
             Ok(response) => {
@@ -206,10 +207,10 @@ fn inherit_settings(sub: &SubAgent, root: &Settings) {
         && let Some(model) = root.model.as_ref()
         && sub.agent.model().as_ref() != Some(model)
     {
-        sub.agent.set_model(model.clone());
+        sub.agent.apply(AgentChange::SetModel(model.clone()));
     }
     if sub.persona.thinking.is_none() {
-        sub.agent.set_thinking(root.thinking);
+        sub.agent.apply(AgentChange::SetThinking(root.thinking));
     }
 }
 
@@ -323,7 +324,7 @@ mod tests {
         own_persona.model = Some(Model::reference("ollama", "own"));
         // The builder gives the Agent its Persona's own settings; inheritance must leave them alone.
         let built = agent().with_model(spec("own"));
-        built.set_thinking(Thinking::High);
+        built.apply(AgentChange::SetThinking(Thinking::High));
         let own = SubAgent { id: "own-1".into(), persona: own_persona, agent: Arc::new(built) };
         inherit_settings(&own, &root);
         assert_eq!(own.agent.model(), Some(spec("own")));
