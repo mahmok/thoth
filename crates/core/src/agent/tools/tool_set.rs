@@ -22,7 +22,6 @@ impl error::Error for DuplicateTool {}
 /// The Tools an Agent can call.
 pub struct ToolSet {
     specs: Vec<ToolSpec>,
-    tokens: usize,
     //TODO: Maybe convert to hashmap or tree.
     tools: Vec<Box<dyn ErasedTool>>,
 }
@@ -46,8 +45,10 @@ impl ToolSet {
 
     #[must_use]
     #[inline]
-    pub const fn estimated_tokens(&self) -> usize {
-        self.tokens
+    /// The rough tokens the definitions cost in every request. Recomputed rather than cached, so
+    /// the estimate cannot drift from the definitions it describes.
+    pub fn estimated_tokens(&self) -> usize {
+        self.specs.iter().map(spec_tokens).sum()
     }
 
     fn find(&self, name: &str) -> Option<&dyn ErasedTool> {
@@ -75,7 +76,6 @@ impl ToolSet {
             return Err(DuplicateTool(name.to_owned()));
         }
         let spec = tool.spec();
-        self.tokens = self.tokens.saturating_add(spec_tokens(&spec));
         self.specs.push(spec);
         self.tools.push(Box::new(tool));
         Ok(())
@@ -89,7 +89,6 @@ impl ToolSet {
     {
         self.tools.retain(|tool| keep(tool.tool_name()));
         self.specs.retain(|spec| keep(&spec.name));
-        self.tokens = self.specs.iter().map(spec_tokens).sum();
     }
 
     #[inline]
