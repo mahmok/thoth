@@ -2,6 +2,8 @@
 pub mod anthropic;
 /// A client of any protocol.
 pub mod any;
+/// The fields every request body shares.
+mod body;
 /// Chat messages and completions.
 pub mod chat;
 /// Client errors.
@@ -10,12 +12,16 @@ pub mod error;
 #[expect(clippy::expect_used, reason = "test support: an exhausted script should fail the test")]
 /// A scripted client for tests.
 pub mod fake;
+/// Lowering a conversation for a dialect.
+mod lowering;
 /// Falling back to settings a model accepts.
 mod negotiation;
 pub mod openai;
 pub mod responses;
 /// Server-sent event framing.
 mod sse;
+/// Driving one streamed reply.
+mod stream;
 
 use core::future::Future;
 use std::process;

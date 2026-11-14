@@ -5,8 +5,9 @@ use serde_json::{Value, json};
 use crate::auth::Auth;
 use crate::llm::thinking::Thinking;
 
-use super::EventStream;
-use super::chat::{CompletionChunk as ChatCompletionChunk, Message, ToolCallAssembler};
+use super::body::Common;
+use super::chat::{CompletionChunk as ChatCompletionChunk, Message, ToolCallBuffer, Usage};
+use super::stream;
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, Negotiation, StreamedCompletion, ToolSpec};
 
 #[derive(Debug)]
@@ -30,27 +31,27 @@ impl OpenAiClient {
         Self { config, negotiation: Negotiation::default(), cache_key: super::new_cache_key() }
     }
 
-    async fn post(&self, request: &CreateCompletionRequest<'_>, stream: bool) -> Result<Response, ClientError> {
+    async fn post(&self, request: &CreateCompletionRequest<'_>) -> Result<Response, ClientError> {
         let efforts = efforts(request.thinking);
-        self.negotiation.send(request.thinking, &efforts, |effort| self.post_with(request, stream, *effort)).await
+        self.negotiation.send(request.thinking, &efforts, |effort| self.post_with(request, *effort)).await
     }
 
-    /// POSTs the request with a reasoning effort, streaming or not.
+    /// POSTs the request with a reasoning effort.
     async fn post_with(
         &self,
         request: &CreateCompletionRequest<'_>,
-        stream: bool,
         effort: Option<&'static str>,
     ) -> Result<Response, ClientError> {
         let body = Body {
-            model: &self.config.model,
+            common: Common::streaming(
+                &self.config.model,
+                request.tools.iter().map(function_tool).collect(),
+                request.tool_choice.forbids(request.tools).then_some("none"),
+            ),
             messages: request.messages,
-            stream,
-            stream_options: StreamOptions { include_usage: stream },
             prompt_cache_key: &self.cache_key,
             reasoning_effort: effort,
-            tools: request.tools.iter().map(function_tool).collect(),
-            tool_choice: request.tool_choice.forbids(request.tools).then_some("none"),
+            stream_options: StreamOptions { include_usage: true },
         };
         self.config.auth.post_json("/chat/completions", &[], request.messages, &body).await
     }
@@ -59,18 +60,13 @@ impl OpenAiClient {
 /// The `/chat/completions` request. It borrows the history, so sending it copies nothing first.
 #[derive(Serialize)]
 struct Body<'request> {
+    #[serde(flatten)]
+    common: Common<'request, Value, &'static str>,
     messages: &'request [Message],
-    model: &'request str,
     prompt_cache_key: &'request str,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<&'static str>,
-    stream: bool,
     stream_options: StreamOptions,
-    /// Only sent with tools: a server may refuse a choice when there is nothing to choose from.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'static str>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<Value>,
 }
 
 #[derive(Serialize)]
@@ -84,47 +80,65 @@ impl LlmClient for OpenAiClient {
     async fn create_completion_stream<F>(
         &self,
         request: CreateCompletionRequest<'_>,
-        mut on_delta: F,
+        on_delta: F,
     ) -> Result<StreamedCompletion, ClientError>
     where
         F: FnMut(Delta<'_>) + Send,
     {
-        let response = self.post(&request, true).await?;
-        let mut events = EventStream::new(response);
-        let mut full_text = String::new();
-        let mut usage = None;
-        let mut cut_off = None;
-        let mut tool_calls = ToolCallAssembler::default();
+        stream::drive(self.post(&request), StreamState::default(), on_delta).await
+    }
+}
 
-        while let Some(data) = events.next().await? {
-            if data == "[DONE]" {
-                break;
+/// The sentinel a chat-completions stream sends after its last event.
+const DONE: &str = "[DONE]";
+
+#[derive(Default)]
+/// What one chat-completions stream has produced.
+struct StreamState {
+    calls: ToolCallBuffer,
+    cut_off: Option<String>,
+    text: String,
+    usage: Option<Usage>,
+}
+
+impl stream::Adapter for StreamState {
+    fn is_end(&self, data: &str) -> bool {
+        data == DONE
+    }
+
+    fn apply(&mut self, data: &str, on_delta: &mut impl FnMut(Delta<'_>)) -> Result<(), ClientError> {
+        let chunk: ChatCompletionChunk = serde_json::from_str(data)?;
+        if chunk.usage.is_some() {
+            self.usage = chunk.usage;
+        }
+        for choice in chunk.choices {
+            // Servers name the reasoning field differently (`reasoning_content`, `reasoning`).
+            let reasoning = choice.delta.reasoning_content.or(choice.delta.reasoning);
+            if let Some(text) = reasoning.filter(|t| !t.is_empty()) {
+                on_delta(Delta::Reasoning(&text));
             }
-            let chunk: ChatCompletionChunk = serde_json::from_str(&data)?;
-            if chunk.usage.is_some() {
-                usage = chunk.usage;
+            if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
+                on_delta(Delta::Text(&text));
+                self.text.push_str(&text);
             }
-            for choice in chunk.choices {
-                // Servers name the reasoning field differently (`reasoning_content`, `reasoning`).
-                let reasoning = choice.delta.reasoning_content.or(choice.delta.reasoning);
-                if let Some(text) = reasoning.filter(|t| !t.is_empty()) {
-                    on_delta(Delta::Reasoning(&text));
-                }
-                if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
-                    on_delta(Delta::Text(&text));
-                    full_text.push_str(&text);
-                }
-                for delta in choice.delta.tool_calls {
-                    tool_calls.push(delta);
-                }
-                if choice.finish_reason.as_deref() == Some("length") {
-                    cut_off = Some("length".to_owned());
-                }
+            for delta in choice.delta.tool_calls {
+                self.calls.append(delta);
+            }
+            if choice.finish_reason.as_deref() == Some("length") {
+                self.cut_off = Some("length".to_owned());
             }
         }
+        Ok(())
+    }
 
-        StreamedCompletion { text: full_text, usage, tool_calls: tool_calls.finish(), cut_off, ..Default::default() }
-            .fail_if_cut_off_empty()
+    fn finish(self) -> StreamedCompletion {
+        StreamedCompletion {
+            text: self.text,
+            usage: self.usage,
+            tool_calls: self.calls.finish(),
+            cut_off: self.cut_off,
+            ..Default::default()
+        }
     }
 }
 
@@ -160,6 +174,56 @@ fn function_tool(spec: &ToolSpec) -> Value {
 mod tests {
     use super::*;
     use crate::llm::client::ToolChoice;
+
+    #[tokio::test]
+    async fn the_done_sentinel_ends_the_stream_before_anything_after_it() {
+        use alloc::sync::Arc;
+
+        use crate::auth::store::Credentials as CredentialStore;
+        use crate::auth::testing::MockServer;
+        use crate::llm::provider::{Protocol, Provider};
+
+        let reply = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
+            "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n",
+            "data: [DONE]\n\n",
+            "data: not json\n\n",
+        );
+        let server = MockServer::start(vec![("/chat/completions", vec![(200, reply.into())])]).await;
+        let auth =
+            Auth::new(Provider::builtin("ollama").unwrap(), Protocol::OpenAi, Arc::new(CredentialStore::in_memory()))
+                .with_base_url(&server.url);
+        let client = OpenAiClient::new(OpenAiConfig { model: "m".into(), auth });
+        let messages = [Message::user("hi")];
+        let done = client
+            .create_completion_stream(CreateCompletionRequest { messages: &messages, ..Default::default() }, |_| {})
+            .await
+            .unwrap();
+        assert_eq!(done.text, "hi");
+        assert_eq!(done.usage.unwrap().total_tokens, 2);
+    }
+
+    #[tokio::test]
+    async fn a_reply_that_hits_the_token_limit_is_an_error_not_an_empty_reply() {
+        use alloc::sync::Arc;
+
+        use crate::auth::store::Credentials as CredentialStore;
+        use crate::auth::testing::MockServer;
+        use crate::llm::provider::{Protocol, Provider};
+
+        let reply = "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n";
+        let server = MockServer::start(vec![("/chat/completions", vec![(200, reply.into())])]).await;
+        let auth =
+            Auth::new(Provider::builtin("ollama").unwrap(), Protocol::OpenAi, Arc::new(CredentialStore::in_memory()))
+                .with_base_url(&server.url);
+        let client = OpenAiClient::new(OpenAiConfig { model: "m".into(), auth });
+        let messages = [Message::user("hi")];
+        let err = client
+            .create_completion_stream(CreateCompletionRequest { messages: &messages, ..Default::default() }, |_| {})
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("length"), "{err}");
+    }
 
     #[tokio::test]
     async fn a_model_that_rejects_reasoning_effort_is_retried_without_it_once() {

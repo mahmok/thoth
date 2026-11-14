@@ -8,8 +8,9 @@ use serde_json::{Value, json};
 use crate::auth::Auth;
 use crate::llm::thinking::Thinking;
 
-use super::EventStream;
-use super::chat::{FunctionCall, Message, Reasoning, Role, ToolCall, ToolCallKind, Usage};
+use super::body::Common;
+use super::chat::{Message, Reasoning, ToolCall, ToolCallBuffer, Usage};
+use super::{lowering, stream};
 
 use super::{
     ClientError, CreateCompletionRequest, Delta as Streamed, Llm as LlmClient, Negotiation, StreamedCompletion,
@@ -32,18 +33,14 @@ struct CacheControl {
 #[derive(Serialize)]
 /// The request body.
 struct Body<'request> {
+    #[serde(flatten)]
+    common: Common<'request, WireTool<'request>, WireToolChoice>,
     max_tokens: u32,
     messages: &'request [WireMessage<'request>],
-    model: &'request str,
-    stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<[SystemBlock<'request>; 1]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<ThinkingField>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<WireToolChoice>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<WireTool<'request>>,
 }
 
 /// `{"type": "none"}`: the model may not call a tool. Unlike a forced choice, it is allowed
@@ -195,14 +192,15 @@ impl Client {
         budget: Option<u32>,
     ) -> Body<'request> {
         Body {
-            model: &self.config.model,
+            common: Common::streaming(
+                &self.config.model,
+                tools.iter().map(tool_definition).collect(),
+                choice.forbids(tools).then_some(WireToolChoice { kind: "none" }),
+            ),
             max_tokens: self.config.max_tokens.saturating_add(budget.unwrap_or(0)),
-            stream: true,
             messages: &prompt.messages,
             thinking: budget.map(|budget_tokens| ThinkingField { kind: "enabled", budget_tokens }),
             system: prompt.system.as_deref().map(|text| [SystemBlock { kind: "text", text, cache_control: EPHEMERAL }]),
-            tools: tools.iter().map(tool_definition).collect(),
-            tool_choice: choice.forbids(tools).then_some(WireToolChoice { kind: "none" }),
         }
     }
 
@@ -247,18 +245,12 @@ impl LlmClient for Client {
     async fn create_completion_stream<F>(
         &self,
         request: CreateCompletionRequest<'_>,
-        mut on_delta: F,
+        on_delta: F,
     ) -> Result<StreamedCompletion, ClientError>
     where
         F: FnMut(Streamed<'_>) + Send,
     {
-        let response = self.post(&request).await?;
-        let mut events = EventStream::new(response);
-        let mut stream = StreamState::default();
-        while let Some(data) = events.next().await? {
-            stream.apply(&data, &mut on_delta)?;
-        }
-        stream.finish().fail_if_cut_off_empty()
+        stream::drive(self.post(&request), StreamState::default(), on_delta).await
     }
 }
 
@@ -370,18 +362,11 @@ struct ApiError {
     message: String,
 }
 
-/// A Tool call being assembled.
-struct PartialCall {
-    arguments: String,
-    id: String,
-    name: String,
-}
-
 #[derive(Default)]
 /// What a stream has produced so far.
 struct StreamState {
     cached_tokens: u32,
-    calls: BTreeMap<usize, PartialCall>,
+    calls: ToolCallBuffer,
     cut_off: Option<String>,
     input_tokens: u32,
     output_tokens: u32,
@@ -389,8 +374,7 @@ struct StreamState {
     thinking_blocks: BTreeMap<usize, Value>,
 }
 
-impl StreamState {
-    /// Applies one streamed event to the state, reporting text and reasoning as it arrives.
+impl stream::Adapter for StreamState {
     fn apply(&mut self, data: &str, on_delta: &mut impl FnMut(Streamed<'_>)) -> Result<(), ClientError> {
         match serde_json::from_str::<Event>(data)? {
             Event::MessageStart { message } => self.record_usage(&message.usage),
@@ -410,7 +394,7 @@ impl StreamState {
                     | Value::Array(_)
                     | Value::Object(_) => String::new(),
                 };
-                drop(self.calls.insert(index, PartialCall { arguments, id, name }));
+                self.calls.start(index, &id, &name, &arguments);
             },
             Event::ContentBlockDelta { delta: Delta::Text { text }, .. } => {
                 if !text.is_empty() {
@@ -443,9 +427,7 @@ impl StreamState {
                 }
             },
             Event::ContentBlockDelta { index, delta: Delta::InputJson { partial_json } } => {
-                if let Some(call) = self.calls.get_mut(&index) {
-                    call.arguments.push_str(&partial_json);
-                }
+                self.calls.append_arguments(index, &partial_json);
             },
             Event::Error { error } => return Err(ClientError::Api(error.message)),
             Event::ContentBlockStart { .. } | Event::ContentBlockDelta { .. } | Event::Unknown => {},
@@ -453,7 +435,6 @@ impl StreamState {
         Ok(())
     }
 
-    /// The completion the stream produced.
     fn finish(self) -> StreamedCompletion {
         let usage = (self.input_tokens.saturating_add(self.output_tokens) > 0).then_some(Usage {
             prompt_tokens: self.input_tokens,
@@ -461,24 +442,17 @@ impl StreamState {
             total_tokens: self.input_tokens.saturating_add(self.output_tokens),
             cached_tokens: self.cached_tokens,
         });
-        let tool_calls = self
-            .calls
-            .into_values()
-            .map(|call| ToolCall {
-                id: call.id,
-                kind: ToolCallKind::Function,
-                function: FunctionCall { name: call.name, arguments: call.arguments },
-            })
-            .collect();
         StreamedCompletion {
             text: self.text,
             usage,
-            tool_calls,
+            tool_calls: self.calls.finish(),
             reasoning: self.thinking_blocks.into_values().map(Reasoning::Anthropic).collect(),
             cut_off: self.cut_off,
         }
     }
+}
 
+impl StreamState {
     fn record_usage(&mut self, usage: &WireUsage) {
         self.input_tokens = self.input_tokens.max(usage.prompt_tokens());
         self.cached_tokens = self.cached_tokens.max(usage.cache_read_input_tokens);
@@ -514,39 +488,45 @@ fn tool_definition(spec: &ToolSpec) -> WireTool<'_> {
     WireTool { name: &spec.name, description: &spec.description, input_schema: &spec.parameters }
 }
 
-/// Converts messages to the wire format: a system prompt and alternating turns.
-fn translate(messages: &[Message]) -> (Option<String>, Vec<WireMessage<'_>>) {
-    let mut system: Vec<&str> = Vec::new();
-    let mut turns: Vec<WireMessage<'_>> = Vec::new();
+/// The Anthropic view of a conversation: a system prompt and alternating turns.
+#[derive(Default)]
+struct Lowering<'request> {
+    messages: Vec<WireMessage<'request>>,
+    system: Option<String>,
+}
 
-    for message in messages {
-        let text = message.content.as_deref().filter(|t| !t.is_empty());
-        match message.role {
-            Role::System => system.extend(text),
-            Role::User => {
-                let blocks = text.map(WireBlock::text).into_iter().collect();
-                push_turn(&mut turns, "user", blocks);
-            },
-            Role::Assistant => {
-                // Thinking blocks go back first, exactly as received: tool turns need them.
-                let mut blocks: Vec<WireBlock<'_>> = message
-                    .reasoning
-                    .iter()
-                    .filter_map(|kept| match *kept {
-                        Reasoning::Anthropic(ref block) => Some(WireBlock::Kept(block)),
-                        Reasoning::Google(_) | Reasoning::Responses(_) => None,
-                    })
-                    .collect();
-                blocks.extend(text.map(WireBlock::text));
-                blocks.extend(message.tool_calls.iter().map(WireBlock::tool_use));
-                push_turn(&mut turns, "assistant", blocks);
-            },
-            Role::Tool => push_turn(&mut turns, "user", vec![WireBlock::tool_result(message)]),
-        }
+impl<'request> lowering::Dialect<'request> for Lowering<'request> {
+    type Output = (Option<String>, Vec<WireMessage<'request>>);
+
+    fn system(&mut self, text: &str) {
+        self.system = Some(text.to_owned());
     }
 
-    let system_prompt = (!system.is_empty()).then(|| system.join("\n\n"));
-    (system_prompt, turns)
+    fn user(&mut self, text: &'request str) {
+        push_turn(&mut self.messages, "user", vec![WireBlock::text(text)]);
+    }
+
+    fn assistant(&mut self, message: &'request Message) {
+        // Thinking blocks go back first, exactly as received: tool turns need them.
+        let mut blocks: Vec<WireBlock<'request>> =
+            message.reasoning.iter().filter_map(Reasoning::anthropic).map(WireBlock::Kept).collect();
+        blocks.extend(message.text().map(WireBlock::text));
+        blocks.extend(message.tool_calls.iter().map(WireBlock::tool_use));
+        push_turn(&mut self.messages, "assistant", blocks);
+    }
+
+    fn tool_result(&mut self, message: &'request Message) {
+        push_turn(&mut self.messages, "user", vec![WireBlock::tool_result(message)]);
+    }
+
+    fn finish(self) -> Self::Output {
+        (self.system, self.messages)
+    }
+}
+
+/// Converts messages to the wire format.
+fn translate(messages: &[Message]) -> (Option<String>, Vec<WireMessage<'_>>) {
+    lowering::lower(messages, Lowering::default())
 }
 
 fn push_turn<'request>(turns: &mut Vec<WireMessage<'request>>, role: &'static str, blocks: Vec<WireBlock<'request>>) {
@@ -563,6 +543,8 @@ fn push_turn<'request>(turns: &mut Vec<WireMessage<'request>>, role: &'static st
 mod tests {
     use alloc::sync::Arc;
 
+    use super::super::chat::{FunctionCall, ToolCallKind};
+    use super::super::stream::Adapter as _;
     use super::*;
     use crate::auth::store::Credentials as CredentialStore;
     use crate::llm::provider::{Model, ModelSpec, Protocol, Provider};
