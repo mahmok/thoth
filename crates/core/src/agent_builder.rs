@@ -106,7 +106,7 @@ impl AgentBuilder {
         let mut cache = self.read_only.lock_unpoisoned();
         *cache.entry(persona.tools.clone()).or_insert_with(|| {
             let tools = tools_for(&self.workspace, &persona.tools);
-            tools.definitions().iter().all(|spec| tools.traits(&spec.name, "{}").read_only)
+            tools.definitions().iter().all(|spec| tools.is_read_only(&spec.name))
         })
     }
 

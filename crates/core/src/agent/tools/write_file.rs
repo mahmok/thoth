@@ -4,7 +4,7 @@ use std::fs;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, blocking};
 use crate::workspace::Workspace;
 #[derive(Debug)]
 
@@ -29,14 +29,10 @@ pub(super) struct WriteFileArgs {
 impl Tool for WriteFile {
     type Args = WriteFileArgs;
 
-    fn description(&self) -> &'static str {
-        "Create a text file with the given content, making any missing parent directories. \
+    fn describe(&self) -> Description {
+        Description { description: "Create a text file with the given content, making any missing parent directories. \
          If the file already exists it is replaced whole, so for a change to an existing file read it \
-         and use edit_file instead. Paths are relative to the working directory and must stay inside it."
-    }
-
-    fn name(&self) -> &'static str {
-        "write_file"
+         and use edit_file instead. Paths are relative to the working directory and must stay inside it.", name: "write_file" }
     }
 
     fn parameters(&self) -> Value {
@@ -59,15 +55,6 @@ impl Tool for WriteFile {
         args.path.clone()
     }
 
-    #[inline]
-    fn traits(&self) -> ToolTraits {
-        ToolTraits::default()
-    }
-
-    #[inline]
-    fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-        self.traits()
-    }
 }
 
 /// Runs `write_file`: creates or replaces a file.

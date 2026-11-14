@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits};
+use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits};
 use crate::agent::sub_agents::SubAgents;
 use crate::agent_builder::AgentBuilder;
 
@@ -35,15 +35,13 @@ impl Tool for Messenger {
     type Args = Args;
 
     #[inline]
-    fn description(&self) -> &'static str {
-        "Send a follow-up to a sub-agent you already started, and wait for its reply. Prefer this \
-         to delegate for follow-ups: the sub-agent remembers what it was asked before, and it does \
-         not start a new one."
-    }
-
-    #[inline]
-    fn name(&self) -> &'static str {
-        "message"
+    fn describe(&self) -> Description {
+        Description {
+            description: "Send a follow-up to a sub-agent you already started, and wait for its \
+                          reply. Prefer this to delegate for follow-ups: the sub-agent remembers what \
+                          it was asked before, and it does not start a new one.",
+            name: "message",
+        }
     }
 
     #[inline]
@@ -75,9 +73,7 @@ impl Tool for Messenger {
     }
 
     #[inline]
-    fn traits(&self) -> ToolTraits {
-        ToolTraits::default()
-    }
+
 
     /// Read-only when the Persona of the sub-agent it names only reads. An unknown id is not, so
     /// it is refused in the ordinary way.

@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits};
+use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits};
 use crate::agent::sub_agents::SubAgents;
 use crate::agent_builder::AgentBuilder;
 use crate::persona::{Persona, Repository as PersonaRepository};
@@ -75,15 +75,14 @@ impl Tool for Delegate {
     type Args = Args;
 
     #[inline]
-    fn description(&self) -> &'static str {
-        "Start a new sub-agent with an empty conversation, give it a task, and wait for its reply. \
-         Every call starts a new sub-agent. To ask an existing sub-agent a follow-up, use the message \
-         tool with its agent_id instead of delegating again. Sub-agents cannot delegate further."
-    }
-
-    #[inline]
-    fn name(&self) -> &'static str {
-        "delegate"
+    fn describe(&self) -> Description {
+        Description {
+            description: "Start a new sub-agent with an empty conversation, give it a task, and wait for \
+                          its reply. Every call starts a new sub-agent. To ask an existing sub-agent a \
+                          follow-up, use the message tool with its agent_id instead of delegating \
+                          again. Sub-agents cannot delegate further.",
+            name: "delegate",
+        }
     }
 
     #[inline]
@@ -110,9 +109,7 @@ impl Tool for Delegate {
     }
 
     #[inline]
-    fn traits(&self) -> ToolTraits {
-        ToolTraits::default()
-    }
+
 
     /// Read-only when the Persona that would play the sub-agent only reads.
     #[inline]

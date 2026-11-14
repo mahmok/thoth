@@ -3,7 +3,7 @@ use core::error;
 
 use crate::llm::client::ToolSpec;
 
-use super::tool::{Context as ToolContext, ErasedTool, Outcome as ToolResult, Tool, Traits as ToolTraits};
+use super::tool::{Context as ToolContext, Description, ErasedTool, Outcome as ToolResult, Tool, Traits as ToolTraits};
 
 #[derive(Debug, PartialEq, Eq)]
 /// Returned when a Tool name is registered twice.
@@ -70,7 +70,7 @@ impl ToolSet {
     where
         T: Tool,
     {
-        let name = Tool::name(&tool);
+        let name = tool.describe().name;
         if self.find(name).is_some() {
             return Err(DuplicateTool(name.to_owned()));
         }
@@ -99,6 +99,14 @@ impl ToolSet {
             Some(tool) => tool.call(raw_arguments, cx).await,
             None => ToolResult::error(format!("unknown tool `{name}`")),
         }
+    }
+
+    /// Whether every call to the Tool called `name` only reads. An unknown tool is not read-only,
+    /// which is the cautious answer.
+    #[must_use]
+    #[inline]
+    pub fn is_read_only(&self, name: &str) -> bool {
+        self.find(name).is_some_and(|tool| tool.is_read_only())
     }
 
     /// The traits of one call; an unknown tool has the cautious defaults.
@@ -134,12 +142,8 @@ mod tests {
     impl Tool for Echo {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Echo the text back"
-        }
-
-        fn name(&self) -> &'static str {
-            "echo"
+        fn describe(&self) -> Description {
+            Description { description: "Echo the text back", name: "echo" }
         }
 
         fn parameters(&self) -> Value {
@@ -155,9 +159,7 @@ mod tests {
         }
 
         #[inline]
-        fn traits(&self) -> ToolTraits {
-            ToolTraits::default()
-        }
+    
 
         #[inline]
         fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
@@ -195,6 +197,42 @@ mod tests {
             assert!(result.is_error, "{raw}");
             assert!(result.content.contains("invalid arguments for `echo`"), "{}", result.content);
         }
+    }
+
+    #[test]
+    fn asking_whether_a_tool_reads_uses_its_declared_answer_not_its_arguments() {
+        // A Tool whose individual calls differ still has to answer without arguments.
+        #[derive(Debug)]
+        struct Sometimes;
+
+        impl Tool for Sometimes {
+            type Args = EchoArgs;
+
+            fn describe(&self) -> Description {
+                Description { description: "sometimes reads", name: "sometimes" }
+            }
+
+            fn parameters(&self) -> Value {
+                json!({ "type": "object", "properties": { "text": { "type": "string" } } })
+            }
+
+            async fn run(&self, args: EchoArgs, _cx: &ToolContext) -> ToolResult {
+                ToolResult::ok(args.text)
+            }
+
+            fn summary(&self, args: &EchoArgs) -> String {
+                args.text.clone()
+            }
+
+            fn traits_for(&self, _args: &EchoArgs) -> ToolTraits {
+                ToolTraits::read_only()
+            }
+        }
+
+        let mut set = ToolSet::new();
+        set.register(Sometimes).unwrap();
+        assert!(!set.is_read_only("sometimes"), "the declared traits decide, not the arguments");
+        assert!(!set.is_read_only("unknown"));
     }
 
     #[test]

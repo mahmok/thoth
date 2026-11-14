@@ -1,4 +1,4 @@
-use super::tool::{Context, Outcome, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Context, Outcome, Tool, Traits as ToolTraits, blocking};
 use crate::agent::skills::SkillSet;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -15,12 +15,8 @@ pub(super) struct InvokeSkillArgs {
 impl Tool for InvokeSkill {
     type Args = InvokeSkillArgs;
 
-    fn description(&self) -> &'static str {
-        "Invokes a skill by name, add it to the session context"
-    }
-
-    fn name(&self) -> &'static str {
-        "invoke_skill"
+    fn describe(&self) -> Description {
+        Description { description: "Invokes a skill by name, add it to the session context", name: "invoke_skill" }
     }
 
     fn parameters(&self) -> Value {
@@ -46,10 +42,6 @@ impl Tool for InvokeSkill {
         ToolTraits::read_only()
     }
 
-    #[inline]
-    fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-        self.traits()
-    }
 }
 
 fn get_skill_block(skill_set: &SkillSet, name: &str) -> Result<String, String> {

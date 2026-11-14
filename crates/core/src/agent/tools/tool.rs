@@ -136,14 +136,21 @@ impl Context {
     }
 }
 
+/// What the model is told about a Tool: its name and what it does. One value rather than two
+/// methods, so a tool's identity is declared in one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Description {
+    pub description: &'static str,
+    pub name: &'static str,
+}
+
 /// Something an Agent can call.
 pub trait Tool: Debug + Send + Sync + 'static {
     /// The arguments the Tool takes.
     type Args: DeserializeOwned + Send + 'static;
 
-    fn description(&self) -> &'static str;
-
-    fn name(&self) -> &'static str;
+    /// What the model is told about this Tool.
+    fn describe(&self) -> Description;
 
     /// JSON schema of the arguments, as shown to the model.
     fn parameters(&self) -> Value;
@@ -153,12 +160,17 @@ pub trait Tool: Debug + Send + Sync + 'static {
     /// A short description of one call, for showing it to the user.
     fn summary(&self, args: &Self::Args) -> String;
 
-    /// The traits of every call to this tool. A tool whose calls differ makes
-    /// [`traits_for`](Self::traits_for) look at the arguments instead.
-    fn traits(&self) -> Traits;
+    /// The traits of every call to this tool. The default is the cautious one, so a tool that
+    /// says nothing is treated as having side effects.
+    fn traits(&self) -> Traits {
+        Traits::default()
+    }
 
-    /// The traits of one call, given its parsed arguments.
-    fn traits_for(&self, args: &Self::Args) -> Traits;
+    /// The traits of one call, given its parsed arguments. Only a Tool whose calls differ from
+    /// each other needs this; everything else states its traits once in [`traits`](Self::traits).
+    fn traits_for(&self, _args: &Self::Args) -> Traits {
+        self.traits()
+    }
 }
 
 /// A Tool with its arguments type erased.
@@ -170,6 +182,10 @@ pub(super) trait ErasedTool: Debug + Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Outcome> + Send + 'call>>;
     fn describe_call(&self, raw_arguments: &str) -> String;
     fn spec(&self) -> ToolSpec;
+    /// Whether every call to this Tool only reads. This is the Tool's declared answer, not one
+    /// derived from arguments, because the caller has none.
+    fn is_read_only(&self) -> bool;
+
     fn tool_name(&self) -> &'static str;
     fn traits_for_call(&self, raw_arguments: &str) -> Traits;
 }
@@ -187,7 +203,7 @@ impl<T: Tool> ErasedTool for T {
                 // The schema goes with the error, so the model can correct the call in one step.
                 Err(e) => Outcome::error(format!(
                     "invalid arguments for `{}`: {e}. The arguments must match this schema: {schema}",
-                    Tool::name(self)
+                    self.describe().name
                 )),
             }
         })
@@ -199,21 +215,26 @@ impl<T: Tool> ErasedTool for T {
     }
 
     fn spec(&self) -> ToolSpec {
+        let described = self.describe();
         ToolSpec {
-            name: Tool::name(self).to_owned(),
-            description: self.description().to_owned(),
+            name: described.name.to_owned(),
+            description: described.description.to_owned(),
             parameters: self.parameters(),
         }
     }
 
     fn tool_name(&self) -> &'static str {
-        Tool::name(self)
+        self.describe().name
+    }
+
+    fn is_read_only(&self) -> bool {
+        self.traits().read_only
     }
 
     /// Arguments that do not parse never run, so their call gets the static traits.
     fn traits_for_call(&self, raw_arguments: &str) -> Traits {
         parse_coercing::<T::Args>(raw_arguments, &self.parameters())
-            .map_or_else(|_| Tool::traits(self), |args| self.traits_for(&args))
+            .map_or_else(|_| self.traits(), |args| self.traits_for(&args))
     }
 }
 
