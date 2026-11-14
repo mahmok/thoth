@@ -22,26 +22,33 @@ fn brand(theme: Theme) -> Line<'static> {
     Line::from(spans)
 }
 
-fn state(theme: Theme, status: Status) -> Line<'static> {
-    let word = match status {
-        Status::Running => "running",
-        Status::Waiting => "waiting",
-        Status::Idle => "idle",
-        Status::Completed => "done",
-        Status::Error => "error",
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the header can say the agent is doing. The tool-card states are not here: the app cannot
+/// produce them for the header, so they are not arms that can never run.
+pub enum State {
+    Idle,
+    Running,
+    Waiting,
+}
+
+fn state_line(theme: Theme, state: State) -> Line<'static> {
+    let (word, status) = match state {
+        State::Idle => ("idle", Status::Idle),
+        State::Running => ("running", Status::Running),
+        State::Waiting => ("waiting", Status::Waiting),
     };
     Line::from(Span::styled(format!("● {word}"), theme.status(status)))
 }
 
-pub fn render(frame: &mut Frame<'_>, area: Rect, status: Status) {
+pub fn render(frame: &mut Frame<'_>, area: Rect, state: State) {
     let theme = theme::current();
     theme.fill_on(frame, area, palette::SURFACE);
-    let state = state(*theme, status);
+    let shown = state_line(*theme, state);
     let [left, right] =
-        Layout::horizontal([Constraint::Fill(1), Constraint::Length(to_u16(state.width()).saturating_add(1))])
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(to_u16(shown.width()).saturating_add(1))])
             .areas(Theme::pane().inner(area));
     frame.render_widget(Paragraph::new(brand(*theme)), left);
-    frame.render_widget(Paragraph::new(state), right);
+    frame.render_widget(Paragraph::new(shown), right);
 }
 
 #[cfg(test)]
@@ -52,24 +59,35 @@ mod tests {
     use super::*;
     use crate::theme::ColorDepth;
 
-    fn row(status: Status) -> String {
+    fn row(state: State) -> String {
         let mut terminal = Terminal::new(TestBackend::new(40, 1)).unwrap();
-        terminal.draw(|frame| render(frame, frame.area(), status)).unwrap();
+        terminal.draw(|frame| render(frame, frame.area(), state)).unwrap();
         let buffer = terminal.backend().buffer();
         (0..40).map(|x| buffer[(x, 0)].symbol()).collect()
     }
 
     #[test]
     fn the_name_is_on_the_left_and_the_state_on_the_right() {
-        let shown = row(Status::Running);
+        let shown = row(State::Running);
         assert!(shown.trim_start().starts_with("\u{256d}\u{25c6}\u{256e} THOTH"), "{shown:?}");
         assert!(shown.trim_end().ends_with("\u{25cf} running"), "{shown:?}");
     }
 
     #[test]
     fn each_state_is_named_in_words_and_not_by_colour_alone() {
-        assert!(row(Status::Waiting).contains("\u{25cf} waiting"));
-        assert!(row(Status::Idle).contains("\u{25cf} idle"));
+        assert!(row(State::Waiting).contains("\u{25cf} waiting"));
+        assert!(row(State::Idle).contains("\u{25cf} idle"));
+    }
+
+    #[test]
+    fn every_state_reads_differently() {
+        let shown: Vec<String> = [State::Idle, State::Running, State::Waiting]
+            .into_iter()
+            .map(|state| row(state).trim_end().to_owned())
+            .collect();
+        assert_ne!(shown[0], shown[1]);
+        assert_ne!(shown[1], shown[2]);
+        assert_ne!(shown[0], shown[2]);
     }
 
     #[test]

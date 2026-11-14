@@ -4,27 +4,20 @@ use thoth_core::transcript::tool_call::{ToolCall, ToolStatus};
 
 use crate::theme::{self, Status};
 
-const fn status(tool: ToolStatus) -> Status {
-    match tool {
-        ToolStatus::Running => Status::Running,
-        ToolStatus::Done => Status::Completed,
-        ToolStatus::Failed => Status::Error,
-    }
+/// What a tool's state looks like, in one row each, so a new state is one edit rather than three
+/// matches that must be kept in step.
+#[derive(Debug, Clone, Copy)]
+struct Look {
+    icon: &'static str,
+    status: Status,
+    word: &'static str,
 }
 
-const fn icon(status: ToolStatus) -> &'static str {
-    match status {
-        ToolStatus::Running => "\u{25d0}",
-        ToolStatus::Done => "\u{2714}",
-        ToolStatus::Failed => "\u{2718}",
-    }
-}
-
-const fn status_word(status: ToolStatus) -> &'static str {
-    match status {
-        ToolStatus::Running => "running",
-        ToolStatus::Done => "done",
-        ToolStatus::Failed => "failed",
+const fn look(state: ToolStatus) -> Look {
+    match state {
+        ToolStatus::Done => Look { icon: "\u{2714}", status: Status::Completed, word: "done" },
+        ToolStatus::Failed => Look { icon: "\u{2718}", status: Status::Error, word: "failed" },
+        ToolStatus::Running => Look { icon: "\u{25d0}", status: Status::Running, word: "running" },
     }
 }
 
@@ -32,7 +25,8 @@ const fn status_word(status: ToolStatus) -> &'static str {
 /// everything when it is `expanded`.
 pub(super) fn lines(call: &ToolCall, now: u64, expanded: bool) -> Vec<Line<'static>> {
     let theme = theme::current();
-    let state = theme.status(status(call.status));
+    let look = look(call.status);
+    let state = theme.status(look.status);
     let muted = theme.muted();
 
     let (name, args) = match call.summary.split_once('(') {
@@ -41,12 +35,12 @@ pub(super) fn lines(call: &ToolCall, now: u64, expanded: bool) -> Vec<Line<'stat
     };
     // Only the glyph and the status word carry the state colour; the name is teal and the
     // arguments and timing recede, so a column of cards stays calm.
-    let mut header = vec![Span::styled(format!("{} ", icon(call.status)), state), Span::styled(name, theme.accent())];
+    let mut header = vec![Span::styled(format!("{} ", look.icon), state), Span::styled(name, theme.accent())];
     if !args.is_empty() {
         header.push(Span::styled(args, theme.secondary()));
     }
     header.push(Span::styled("  ", Style::new()));
-    header.push(Span::styled(status_word(call.status).to_owned(), state));
+    header.push(Span::styled(look.word.to_owned(), state));
     header.push(Span::styled(format!(" {}", format_duration(call.duration_ms(now))), theme.log_meta()));
     if expanded || call.hidden_lines() > 0 {
         let marker = if expanded { " \u{25be}" } else { " \u{25b8}" };

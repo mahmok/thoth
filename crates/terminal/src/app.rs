@@ -17,7 +17,7 @@ use super::popup;
 use super::prompt::{Prompt, Submission};
 use crate::picker::{Catalog, Outcome, PickerHost, PickerKey, PromptText};
 use crate::stats;
-use crate::theme::{self, Status, Theme};
+use crate::theme::{self, Theme};
 use crate::units::to_u16;
 use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
 use ratatui::layout::{Constraint, Layout};
@@ -347,14 +347,14 @@ impl TerminalApp {
     }
 
     /// What the header says the agent is doing: a login that needs the user is waiting on them.
-    fn status(&self) -> Status {
+    fn status(&self) -> header::State {
         let login = self.harness.login_view();
         if login.active || login.awaiting_secret {
-            Status::Waiting
+            header::State::Waiting
         } else if self.harness.view().busy {
-            Status::Running
+            header::State::Running
         } else {
-            Status::Idle
+            header::State::Idle
         }
     }
 
