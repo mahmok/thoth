@@ -1,7 +1,11 @@
 //! Test utilities shared across modules. Compiled only for tests.
 
-/// A scripted Harness for tests.
-pub mod scripted;
+/// A scripted client driven by a declarative script.
+pub mod client;
+/// Fixture builders for clients, providers, models and Agents.
+pub mod fixtures;
+/// A Harness wired to scripted collaborators.
+pub mod harness;
 /// Temporary directory trees for tests.
 pub mod temp_tree;
 

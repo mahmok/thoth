@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "testing"))]
 use crate::agent::controller::Controller as AgentController;
 use crate::agent::controller::TokioAgent as TokioAgentController;
 use crate::agent_builder::AgentBuilder;

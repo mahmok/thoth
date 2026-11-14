@@ -115,35 +115,21 @@ mod tests {
     use core::time::Duration;
 
     use super::*;
-    use crate::agent::{Agent, Event as AgentEvent};
-    use crate::auth::store::Credentials as CredentialStore;
-    use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::any::Client as AnyClient;
-    use crate::llm::client::error::Failure as ClientError;
-    use crate::llm::client::fake;
-    use crate::llm::client::fake::Client as FakeClient;
-    use crate::llm::provider::{Model, ModelSpec, Provider};
+    use crate::agent::Event as AgentEvent;
     use crate::llm::thinking::Thinking;
+    use crate::test::client::{Script, failure, reply};
+    use crate::test::fixtures::agent;
     use tokio::time;
 
-    fn controller(script: Vec<Result<StreamedCompletion, ClientError>>) -> TokioAgent {
-        let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("m")))
-            .with_client(AnyClient::Fake(FakeClient::new(script)));
+    fn controller(script: Script) -> TokioAgent {
+        let (agent, _) = agent(script);
         TokioAgent::new(Arc::new(agent))
-    }
-
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "the fake client's script holds Results, and the caller compares Options"
-    )]
-    fn reply(text: &str) -> Result<StreamedCompletion, ClientError> {
-        Ok(StreamedCompletion { text: text.into(), usage: None, tool_calls: Vec::new(), ..Default::default() })
     }
 
     /// Waits for the turn to end, returning every reply it produced.
     async fn run_turn(fail: bool) -> Vec<Reply> {
-        let link = controller(vec![if fail { Err(fake::failure()) } else { reply("hello") }]);
+        let step = if fail { failure() } else { reply("hello") };
+        let link = controller(vec![step]);
         link.start("hi".into());
 
         let mut replies = Vec::new();
@@ -190,7 +176,7 @@ mod tests {
     #[test]
     fn settings_are_the_agents_and_changes_reach_it() {
         let link = controller(Vec::new());
-        assert_eq!(link.settings().model.map(|m| m.model.id), Some("m".to_owned()));
+        assert_eq!(link.settings().model, Some(crate::test::fixtures::test_model()));
         link.apply(AgentChange::SetThinking(Thinking::High));
         assert_eq!(link.settings().thinking, Thinking::High);
     }

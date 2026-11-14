@@ -816,7 +816,6 @@ async fn until<T>(cancelled: &CancellationToken, work: impl Future<Output = Resu
 
 #[cfg(test)]
 mod tests {
-    use serde::Deserialize;
     use serde_json::{Value, json};
     use std::path::PathBuf;
 
@@ -825,57 +824,20 @@ mod tests {
         Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits,
     };
     use crate::agent::tools::tool_set::ToolSet;
-    use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::ToolChoice;
-    use crate::llm::client::chat::{FunctionCall, Role, ToolCall, ToolCallKind};
-    use crate::llm::client::fake;
-    use crate::llm::client::fake::Client as FakeClient;
+    use crate::llm::client::chat::{Role, Usage};
+    use crate::llm::client::{StreamedCompletion, ToolChoice};
     use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::persona::Persona;
     use crate::test::assert_empty;
+    use crate::test::client::{
+        Client, Script, answer, call, call_answer, calls, calls_answer, completion, error, failure, reply,
+    };
+    use crate::test::fixtures::{Echo, EchoArgs, agent_with as fixture_agent, echo_agent, test_model};
     use core::future;
     use core::sync::atomic::AtomicBool;
     use core::sync::atomic::Ordering;
     use core::time::Duration;
     use tokio::time;
-
-    #[derive(Debug)]
-    struct Echo;
-
-    #[derive(Deserialize)]
-    struct EchoArgs {
-        text: String,
-    }
-
-    impl Tool for Echo {
-        type Args = EchoArgs;
-
-        fn describe(&self) -> Description {
-            Description { description: "Echo the text back", name: "echo" }
-        }
-
-        fn parameters(&self) -> Value {
-            json!({ "type": "object", "properties": { "text": { "type": "string" } } })
-        }
-
-        fn run(&self, args: EchoArgs, _cx: &ToolContext) -> impl Future<Output = ToolResult> {
-            future::ready(ToolResult::ok(format!("echo: {}", args.text)))
-        }
-
-        fn summary(&self, args: &EchoArgs) -> String {
-            args.text.clone()
-        }
-
-        #[inline]
-        fn traits(&self) -> ToolTraits {
-            ToolTraits::default()
-        }
-
-        #[inline]
-        fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-            self.traits()
-        }
-    }
 
     /// Like `Echo`, but it changes nothing, so calls to it may run together.
     #[derive(Debug)]
@@ -1059,89 +1021,25 @@ mod tests {
         }
     }
 
-    fn agent_with_tool(tool: impl Tool, script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
+    fn agent_with_tool(tool: impl Tool, script: Script) -> (Agent, Client) {
         let mut tools = ToolSet::new();
         tools.register(tool).unwrap();
-        let fake = FakeClient::new(script);
-        let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(test_model())
-            .with_client(AnyClient::Fake(fake.clone()))
-            .with_tools(tools);
-        (agent, fake)
+        fixture_agent(script, tools)
     }
 
-    fn test_model() -> ModelSpec {
-        ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("test-model"))
+    pub(super) fn build(script: Script) -> (Agent, Client) {
+        echo_agent(script)
     }
 
-    pub(super) fn build(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
-        let mut tools = ToolSet::new();
-        tools.register(Echo).unwrap();
-        let fake = FakeClient::new(script);
-        let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(test_model())
-            .with_client(AnyClient::Fake(fake.clone()))
-            .with_tools(tools);
-        (agent, fake)
-    }
-
-    fn agent(script: Vec<Result<StreamedCompletion, ClientError>>) -> Agent {
+    fn agent(script: Script) -> Agent {
         build(script).0
     }
 
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "the fake client's script holds Results, and the caller compares Options"
-    )]
-    pub(super) fn text(text: &str) -> Result<StreamedCompletion, ClientError> {
-        Ok(StreamedCompletion { text: text.into(), usage: None, tool_calls: Vec::new(), ..Default::default() })
-    }
-
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "the fake client's script holds Results, and the caller compares Options"
-    )]
-    fn call(id: &str, name: &str, arguments: &str) -> Result<StreamedCompletion, ClientError> {
-        Ok(StreamedCompletion {
-            text: String::new(),
-            usage: None,
-            tool_calls: vec![ToolCall {
-                id: id.into(),
-                kind: ToolCallKind::Function,
-                function: FunctionCall { name: name.into(), arguments: arguments.into() },
-            }],
-            ..Default::default()
-        })
-    }
-
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "the fake client's script holds Results, and the caller compares Options"
-    )]
-    fn calls(calls: &[(&str, &str, &str)]) -> Result<StreamedCompletion, ClientError> {
-        Ok(StreamedCompletion {
-            tool_calls: calls
-                .iter()
-                .map(|&(id, name, arguments)| ToolCall {
-                    id: id.into(),
-                    kind: ToolCallKind::Function,
-                    function: FunctionCall { name: name.into(), arguments: arguments.into() },
-                })
-                .collect(),
-            ..Default::default()
-        })
-    }
-
-    fn with_peek(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
+    fn with_peek(script: Script) -> (Agent, Client) {
         let mut tools = ToolSet::new();
         tools.register(Echo).unwrap();
         tools.register(Peek).unwrap();
-        let fake = FakeClient::new(script);
-        let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(test_model())
-            .with_client(AnyClient::Fake(fake.clone()))
-            .with_tools(tools);
-        (agent, fake)
+        fixture_agent(script, tools)
     }
 
     /// The tool events, each as its kind and the id of its call.
@@ -1172,7 +1070,7 @@ mod tests {
     #[tokio::test]
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     async fn runs_a_tool_then_answers() {
-        let agent = agent(vec![call("call_1", "echo", r#"{"text":"hi"}"#), text("done")]);
+        let agent = agent(vec![call("call_1", "echo", r#"{"text":"hi"}"#), reply("done")]);
 
         let mut events = Vec::new();
         let response = agent.respond("say hi".into(), |e| events.push(e)).await.unwrap();
@@ -1196,7 +1094,7 @@ mod tests {
 
     #[tokio::test]
     async fn offers_the_tool_set_and_sends_results_back() {
-        let (agent, fake) = build(vec![call("c", "echo", r#"{"text":"x"}"#), text("ok")]);
+        let (agent, fake) = build(vec![call("c", "echo", r#"{"text":"x"}"#), reply("ok")]);
         agent.respond("go".into(), |_| {}).await.unwrap();
 
         let requests = fake.requests();
@@ -1208,17 +1106,14 @@ mod tests {
 
     #[tokio::test]
     async fn an_agent_without_tools_offers_none() {
-        let fake = FakeClient::new(vec![text("hi")]);
-        let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(test_model())
-            .with_client(AnyClient::Fake(fake.clone()));
+        let (agent, fake) = fixture_agent(vec![reply("hi")], ToolSet::new());
         agent.respond("hello".into(), |_| {}).await.unwrap();
         assert_empty(&fake.requests()[0].1);
     }
 
     #[tokio::test]
     async fn unknown_tools_and_bad_arguments_reach_the_model_as_errors() {
-        let agent = agent(vec![call("a", "launch_missiles", "{}"), call("b", "echo", "{not json"), text("sorry")]);
+        let agent = agent(vec![call("a", "launch_missiles", "{}"), call("b", "echo", "{not json"), reply("sorry")]);
         let mut events = Vec::new();
         agent.respond("hi".into(), |e| events.push(e)).await.unwrap();
 
@@ -1242,7 +1137,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_turn_that_only_read_leaves_the_conversation_unchanged() {
-        let (agent, _) = with_peek(vec![text("first"), call("c", "peek", r#"{"text":"x"}"#), Err(fake::failure())]);
+        let (agent, _) = with_peek(vec![reply("first"), call("c", "peek", r#"{"text":"x"}"#), failure()]);
         agent.respond("one".into(), |_| {}).await.unwrap();
         let before = roles(&agent).await;
 
@@ -1254,7 +1149,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_turn_that_changed_something_keeps_its_tool_steps() {
-        let agent = agent(vec![call("c", "echo", r#"{"text":"x"}"#), Err(fake::failure())]);
+        let agent = agent(vec![call("c", "echo", r#"{"text":"x"}"#), failure()]);
         let err = agent.respond("edit".into(), |_| {}).await.err().unwrap();
         assert!(matches!(err, Failure::Client(_)));
         assert_eq!(roles(&agent).await, [Role::User, Role::Assistant, Role::Tool]);
@@ -1268,14 +1163,10 @@ mod tests {
         let mut tools = ToolSet::new();
         tools.register(CancelParent { parent: parent.clone(), saw_cancel }).unwrap();
         tools.register(Echo).unwrap();
-        let fake = FakeClient::new(vec![calls(&[
-            ("a", "cancel_parent", r#"{"text":"x"}"#),
-            ("b", "echo", r#"{"text":"later"}"#),
-        ])]);
-        let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(test_model())
-            .with_client(AnyClient::Fake(fake))
-            .with_tools(tools);
+        let (agent, _) = fixture_agent(
+            vec![calls(&[("a", "cancel_parent", r#"{"text":"x"}"#), ("b", "echo", r#"{"text":"later"}"#)])],
+            tools,
+        );
         let result = agent.respond_under(&parent, "go".into(), |_| {}).await;
         assert!(matches!(result, Err(Failure::Interrupted)));
 
@@ -1304,7 +1195,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_interrupt_stops_the_running_turn_and_the_ones_queued_behind_it() {
-        let (agent, fake) = agent_with_tool(Sleepy, vec![call("c", "sleepy", r#"{"text":"x"}"#), text("never")]);
+        let (agent, fake) = agent_with_tool(Sleepy, vec![call("c", "sleepy", r#"{"text":"x"}"#), reply("never")]);
         let both = async {
             tokio::join!(agent.respond("one".into(), |_| {}), agent.respond("two".into(), |_| {}), async {
                 time::sleep(Duration::from_millis(50)).await;
@@ -1321,7 +1212,7 @@ mod tests {
     #[tokio::test]
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     async fn a_failed_tool_call_is_stored_as_an_error_result() {
-        let agent = agent(vec![call("c", "echo", "{not json"), text("done")]);
+        let agent = agent(vec![call("c", "echo", "{not json"), reply("done")]);
         agent.respond("go".into(), |_| {}).await.unwrap();
         let conversation = agent.conversation.lock().await;
         let tool = conversation.messages().iter().find(|m| m.role == Role::Tool).unwrap();
@@ -1334,7 +1225,7 @@ mod tests {
             elision: None,
             compaction: Some(context::Compaction { budget: 2_000, limit_share: 1.0, keep_recent: 0 }),
         };
-        let (plain, fake) = build(vec![text("a"), text("b"), text("summary"), text("c")]);
+        let (plain, fake) = build(vec![reply("a"), reply("b"), reply("summary"), reply("c")]);
         let agent = plain.with_context(&AgentContext::new(PathBuf::new().as_path()).with_budget(budget));
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
@@ -1345,10 +1236,10 @@ mod tests {
 
     #[tokio::test]
     async fn the_estimate_is_corrected_by_the_tokens_the_provider_counted() {
-        let mut reply = text("ok").unwrap();
+        let mut reply = answer("ok");
         reply.usage =
             Some(Usage { prompt_tokens: 100_000, completion_tokens: 1, total_tokens: 100_001, ..Default::default() });
-        let agent = agent(vec![Ok(reply)]);
+        let agent = agent(vec![completion(reply)]);
         assert_eq!(agent.scaled(100), 100, "no correction before any request");
         agent.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(agent.scaled(100), 300, "the ratio is capped at 3");
@@ -1359,7 +1250,7 @@ mod tests {
     #[tokio::test]
     async fn the_last_step_must_answer_in_text_and_ends_the_turn_with_a_reply() {
         let mut script: Vec<_> = (0i32..2i32).map(|i| call(&format!("c{i}"), "echo", r#"{"text":"x"}"#)).collect();
-        script.push(text("ran out of steps; here is what is done"));
+        script.push(reply("ran out of steps; here is what is done"));
         let (agent, fake) = build(script);
         let response = agent.with_max_steps(3).respond("loop".into(), |_| {}).await.unwrap();
         assert_eq!(response.message.text.as_deref(), Some("ran out of steps; here is what is done"));
@@ -1368,7 +1259,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_of_one_step_keeps_its_tools() {
-        let (agent, fake) = build(vec![text("hi")]);
+        let (agent, fake) = build(vec![reply("hi")]);
         agent.with_max_steps(1).respond("go".into(), |_| {}).await.unwrap();
         assert_eq!(fake.tool_choices(), [ToolChoice::Auto]);
     }
@@ -1396,7 +1287,7 @@ mod tests {
     #[tokio::test]
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     async fn repeating_a_failed_call_gets_a_hint() {
-        let agent = agent(vec![call("a", "echo", "{not json"), call("b", "echo", "{not json"), text("done")]);
+        let agent = agent(vec![call("a", "echo", "{not json"), call("b", "echo", "{not json"), reply("done")]);
         agent.respond("go".into(), |_| {}).await.unwrap();
         let conversation = agent.conversation.lock().await;
         let results: Vec<&str> = conversation
@@ -1421,7 +1312,7 @@ mod tests {
     #[tokio::test]
     async fn each_model_call_starts_a_numbered_step() {
         let (agent, _) =
-            agent_with_tool(Probe { read_only: false }, vec![call("c", "probe", r#"{"text":"x"}"#), text("done")]);
+            agent_with_tool(Probe { read_only: false }, vec![call("c", "probe", r#"{"text":"x"}"#), reply("done")]);
         let mut steps = Vec::new();
         agent
             .respond("go".into(), |e| {
@@ -1437,8 +1328,10 @@ mod tests {
     #[tokio::test]
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     async fn read_only_calls_start_together_and_finish_in_order() {
-        let (agent, _) =
-            with_peek(vec![calls(&[("a", "peek", r#"{"text":"1"}"#), ("b", "peek", r#"{"text":"2"}"#)]), text("done")]);
+        let (agent, _) = with_peek(vec![
+            calls(&[("a", "peek", r#"{"text":"1"}"#), ("b", "peek", r#"{"text":"2"}"#)]),
+            reply("done"),
+        ]);
         let mut events = Vec::new();
         agent.respond("go".into(), |e| events.push(e)).await.unwrap();
         assert_eq!(tool_events(&events), ["start a", "start b", "finish a", "finish b"]);
@@ -1450,8 +1343,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_step_with_a_tool_that_changes_things_runs_one_call_at_a_time() {
-        let (agent, _) =
-            with_peek(vec![calls(&[("a", "peek", r#"{"text":"1"}"#), ("b", "echo", r#"{"text":"2"}"#)]), text("done")]);
+        let (agent, _) = with_peek(vec![
+            calls(&[("a", "peek", r#"{"text":"1"}"#), ("b", "echo", r#"{"text":"2"}"#)]),
+            reply("done"),
+        ]);
         let mut events = Vec::new();
         agent.respond("go".into(), |e| events.push(e)).await.unwrap();
         assert_eq!(tool_events(&events), ["start a", "finish a", "start b", "finish b"]);
@@ -1459,7 +1354,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_reply_cut_off_after_some_text_is_kept_with_a_notice() {
-        let cut = Ok(StreamedCompletion {
+        let cut = completion(StreamedCompletion {
             text: "half an ans".into(),
             cut_off: Some("max_tokens".into()),
             ..Default::default()
@@ -1475,14 +1370,13 @@ mod tests {
     #[tokio::test]
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     async fn a_tool_call_cut_off_mid_argument_is_not_run_and_the_model_is_told() {
-        let cut = Ok(StreamedCompletion {
-            tool_calls: calls(&[("a", "echo", r#"{"text":"fine"}"#), ("b", "echo", r#"{"text":"cut of"#)])
-                .unwrap()
+        let cut = completion(StreamedCompletion {
+            tool_calls: calls_answer(&[("a", "echo", r#"{"text":"fine"}"#), ("b", "echo", r#"{"text":"cut of"#)])
                 .tool_calls,
             cut_off: Some("max_tokens".into()),
             ..Default::default()
         });
-        let agent = agent(vec![cut, text("smaller now")]);
+        let agent = agent(vec![cut, reply("smaller now")]);
         let response = agent.respond("go".into(), |_| {}).await.unwrap();
         assert_eq!(response.message.text.as_deref(), Some("smaller now"));
 
@@ -1495,12 +1389,12 @@ mod tests {
     #[tokio::test]
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     async fn a_request_that_is_too_long_is_retried_once_with_old_tool_output_elided() {
-        let overflow = || Err(ClientError::BadRequest("prompt is too long: 300000 tokens".into()));
+        let overflow = || error(ClientError::BadRequest("prompt is too long: 300000 tokens".into()));
         let (agent, fake) = build(vec![
             call("c", "echo", &json!({ "text": big(5_000) }).to_string()),
-            text("one"),
+            reply("one"),
             overflow(),
-            text("two"),
+            reply("two"),
         ]);
         agent.respond("first".into(), |_| {}).await.unwrap();
         let mut events = Vec::new();
@@ -1515,7 +1409,7 @@ mod tests {
 
     #[tokio::test]
     async fn too_long_with_nothing_to_elide_is_an_error_not_a_retry() {
-        let overflow = Err(ClientError::BadRequest("prompt is too long".into()));
+        let overflow = error(ClientError::BadRequest("prompt is too long".into()));
         let (agent, fake) = build(vec![overflow]);
         let err = agent.respond("hi".into(), |_| {}).await.err().unwrap();
         assert!(matches!(err, Failure::Client(_)));
@@ -1529,7 +1423,7 @@ mod tests {
             compaction: Some(context::Compaction { budget: 1_000, limit_share: 1.0, keep_recent: 0 }),
         };
         let arguments = json!({ "text": big(2_000) }).to_string();
-        let (plain, _) = build(vec![call("a", "echo", &arguments), call("b", "echo", &arguments), text("done")]);
+        let (plain, _) = build(vec![call("a", "echo", &arguments), call("b", "echo", &arguments), reply("done")]);
         let agent = plain.with_context(&AgentContext::new(PathBuf::new().as_path()).with_budget(budget));
         agent.respond("go".into(), |_| {}).await.unwrap();
 
@@ -1548,9 +1442,9 @@ mod tests {
         agent
     }
 
-    fn bulky_script() -> Vec<Result<StreamedCompletion, ClientError>> {
+    fn bulky_script() -> Script {
         let arguments = json!({ "text": big(8_000) }).to_string();
-        vec![calls(&[("a", "echo", &arguments), ("b", "echo", &arguments)]), text("one"), text("two")]
+        vec![calls(&[("a", "echo", &arguments), ("b", "echo", &arguments)]), reply("one"), reply("two")]
     }
 
     fn first_result_elided(conversation: &Conversation) -> bool {
@@ -1579,8 +1473,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_tool_sees_its_call_id_and_reports_progress_on_its_own_card() {
-        let (agent, _) =
-            agent_with_tool(Probe { read_only: false }, vec![call("call_9", "probe", r#"{"text":"x"}"#), text("done")]);
+        let (agent, _) = agent_with_tool(
+            Probe { read_only: false },
+            vec![call("call_9", "probe", r#"{"text":"x"}"#), reply("done")],
+        );
         let mut events = Vec::new();
         agent.respond("go".into(), |e| events.push(e)).await.unwrap();
 
@@ -1597,7 +1493,7 @@ mod tests {
     async fn read_only_calls_report_progress_on_their_own_cards_while_they_run_together() {
         let (agent, _) = agent_with_tool(
             Probe { read_only: true },
-            vec![calls(&[("a", "probe", r#"{"text":"1"}"#), ("b", "probe", r#"{"text":"2"}"#)]), text("done")],
+            vec![calls(&[("a", "probe", r#"{"text":"1"}"#), ("b", "probe", r#"{"text":"2"}"#)]), reply("done")],
         );
         let mut events = Vec::new();
         agent.respond("go".into(), |e| events.push(e)).await.unwrap();
@@ -1614,7 +1510,7 @@ mod tests {
         let saw_cancel = Arc::new(AtomicBool::new(false));
         let (agent, fake) = agent_with_tool(
             CancelParent { parent: parent.clone(), saw_cancel: Arc::clone(&saw_cancel) },
-            vec![call("c", "cancel_parent", r#"{"text":"x"}"#), text("never")],
+            vec![call("c", "cancel_parent", r#"{"text":"x"}"#), reply("never")],
         );
         let result = agent.respond_under(&parent, "go".into(), |_| {}).await;
 
@@ -1627,7 +1523,7 @@ mod tests {
     async fn a_turn_whose_parent_is_already_cancelled_makes_no_model_call() {
         let parent = CancellationToken::new();
         parent.cancel();
-        let (agent, fake) = build(vec![text("never")]);
+        let (agent, fake) = build(vec![reply("never")]);
         let result = agent.respond_under(&parent, "go".into(), |_| {}).await;
         assert!(matches!(result, Err(Failure::Interrupted)));
         assert_empty(fake.requests());
@@ -1637,10 +1533,10 @@ mod tests {
     #[tokio::test]
     async fn a_tools_usage_counts_toward_the_turn_with_the_models_own() {
         let (agent, _) = agent_with_tool(Spend, {
-            let mut first = call("c", "spend", r#"{"text":"x"}"#).unwrap();
+            let mut first = call_answer("c", "spend", r#"{"text":"x"}"#);
             first.usage =
                 Some(Usage { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11, ..Default::default() });
-            vec![Ok(first), text("done")]
+            vec![completion(first), reply("done")]
         });
         let response = agent.respond("go".into(), |_| {}).await.unwrap();
         let total = response.usage.unwrap();
@@ -1649,14 +1545,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_turns_usage_is_the_tools_when_the_model_reports_none() {
-        let (agent, _) = agent_with_tool(Spend, vec![call("c", "spend", r#"{"text":"x"}"#), text("done")]);
+        let (agent, _) = agent_with_tool(Spend, vec![call("c", "spend", r#"{"text":"x"}"#), reply("done")]);
         let response = agent.respond("go".into(), |_| {}).await.unwrap();
         assert_eq!(response.usage.map(|u| u.total_tokens), Some(7));
     }
 
     #[tokio::test]
     async fn an_empty_reply_leaves_the_conversation_unchanged() {
-        let agent = agent(vec![text("")]);
+        let agent = agent(vec![reply("")]);
         let response = agent.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(response.message.text.unwrap(), "");
         assert_empty(&roles(&agent).await);
@@ -1665,7 +1561,7 @@ mod tests {
     #[tokio::test]
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     async fn an_empty_final_reply_keeps_prior_tool_steps_in_conversation() {
-        let (agent, fake) = build(vec![call("c", "echo", r#"{"text":"x"}"#), text(""), text("next reply")]);
+        let (agent, fake) = build(vec![call("c", "echo", r#"{"text":"x"}"#), reply(""), reply("next reply")]);
 
         let response = agent.respond("run tool".into(), |_| {}).await.unwrap();
         assert_eq!(response.message.text.as_deref(), Some(""));
@@ -1685,9 +1581,9 @@ mod tests {
     async fn turns_never_interleave() {
         let agent = agent(vec![
             call("a", "echo", r#"{"text":"1"}"#),
-            text("reply one"),
+            reply("reply one"),
             call("b", "echo", r#"{"text":"2"}"#),
-            text("reply two"),
+            reply("reply two"),
         ]);
         let (first, second) = tokio::join!(agent.respond("one".into(), |_| {}), agent.respond("two".into(), |_| {}),);
         first.unwrap();
@@ -1702,11 +1598,11 @@ mod tests {
     #[tokio::test]
     async fn usage_is_summed_across_steps() {
         let usage = |p, c| Usage { prompt_tokens: p, completion_tokens: c, total_tokens: p + c, ..Default::default() };
-        let mut first = call("c", "echo", r#"{"text":"x"}"#).unwrap();
+        let mut first = call_answer("c", "echo", r#"{"text":"x"}"#);
         first.usage = Some(usage(10, 2));
-        let mut second = text("done").unwrap();
+        let mut second = answer("done");
         second.usage = Some(usage(30, 5));
-        let agent = agent(vec![Ok(first), Ok(second)]);
+        let agent = agent(vec![completion(first), completion(second)]);
 
         let total = agent.respond("hi".into(), |_| {}).await.unwrap().usage.unwrap();
         assert_eq!((total.prompt_tokens, total.completion_tokens, total.total_tokens), (40, 7, 47));
@@ -1714,7 +1610,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_system_prompt_is_kept_across_turns() {
-        let agent = agent(vec![text("a"), text("b")]).with_context(&AgentContext::new(PathBuf::new().as_path()));
+        let agent = agent(vec![reply("a"), reply("b")]).with_context(&AgentContext::new(PathBuf::new().as_path()));
         agent.respond("1".into(), |_| {}).await.unwrap();
         agent.respond("2".into(), |_| {}).await.unwrap();
         assert_eq!(roles(&agent).await, [Role::System, Role::User, Role::Assistant, Role::User, Role::Assistant]);
@@ -1741,7 +1637,7 @@ mod tests {
 
     #[tokio::test]
     async fn settings_are_read_and_changed_together() {
-        let agent = agent(vec![text("a")]);
+        let agent = agent(vec![reply("a")]);
         assert_eq!(agent.settings(), Settings { model: Some(test_model()), thinking: Thinking::Medium });
         agent.apply(Change::SetThinking(Thinking::Max));
         let other = ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("other"));
@@ -1768,7 +1664,7 @@ mod tests {
 
     #[tokio::test]
     async fn clearing_keeps_the_system_prompt_and_drops_the_conversation() {
-        let agent = agent(vec![text("a")]).with_context(&AgentContext::new(PathBuf::new().as_path()));
+        let agent = agent(vec![reply("a")]).with_context(&AgentContext::new(PathBuf::new().as_path()));
         agent.respond("1".into(), |_| {}).await.unwrap();
         assert!(agent.clear_conversation());
         assert_eq!(roles(&agent).await, [Role::System]);

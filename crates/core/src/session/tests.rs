@@ -7,135 +7,19 @@ use crate::agent::Event as AgentEvent;
 use crate::agent::controller::scripted::Controller as ScriptedAgent;
 use crate::agent::tools::tool::Outcome as ToolResult;
 use crate::auth::flow::LoginEvent;
-use crate::auth::store::Credentials as CredentialStore;
-use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
-use crate::builtin::files::FileReferences;
-use crate::harness::{Event as HarnessEvent, Harness as CoreHarness};
+use crate::harness::{Event as HarnessEvent, Harness};
 use crate::llm::client::chat::Usage;
 use crate::llm::provider::Provider;
 use crate::llm::provider::{Model, ModelSpec, Protocol};
 use crate::llm::thinking::Thinking;
 use crate::models::refresh::Event as RefreshEvent;
-use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::store::Models as ModelsStore;
-use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
-use crate::models::testing::{fixture, store_with};
 use crate::session::view::Login as LoginView;
 use crate::test::assert_empty;
-use crate::test::scripted::Scripted;
+use crate::test::fixtures::{models, store_with};
+use crate::test::harness::{Scripted, TestHarness};
 use crate::transcript::Content;
 use crate::transcript::tool_call::ToolStatus;
-
-/// A session wired to scripted collaborators, driven by calling it the way a client would.
-#[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]
-struct Harness {
-    agent: Rc<ScriptedAgent>,
-    events: Vec<SessionEvent>,
-    files: Arc<FileReferences>,
-    harness: CoreHarness,
-    harness_events: Vec<HarnessEvent>,
-    refresh_worker: Rc<ScriptedRefreshWorker>,
-    store: Arc<CredentialStore>,
-    /// The session this client is viewing; the harness has no say in it.
-    viewing: u64,
-    worker: Rc<ScriptedLoginWorker>,
-}
-
-impl Harness {
-    fn build(agent: Rc<ScriptedAgent>, logged_in: &[Provider], models: Arc<InMemoryModelsStore>) -> Self {
-        let scripted = Scripted::new(agent, logged_in);
-        let mut harness = CoreHarness::new(scripted.services(models));
-        harness.start_session_with(1, Box::new(Rc::clone(&scripted.agent)));
-        Self {
-            harness,
-            viewing: 1,
-            agent: scripted.agent,
-            worker: scripted.worker,
-            refresh_worker: scripted.refresh_worker,
-            store: scripted.store,
-            files: scripted.files,
-            events: Vec::new(),
-            harness_events: Vec::new(),
-        }
-    }
-
-    fn cancel(&mut self) {
-        self.harness.cancel_login();
-        self.harness.cancel_session(self.viewing);
-        self.poll();
-    }
-
-    fn done(&mut self) {
-        self.reply(Reply::Done { usage: None });
-    }
-
-    fn new() -> Self {
-        Self::build(ScriptedAgent::new(), &[], fixture())
-    }
-
-    fn poll(&mut self) {
-        for event in self.harness.poll() {
-            match event {
-                HarnessEvent::Session { id, event: inner } if id == self.viewing => self.events.push(inner),
-                HarnessEvent::Session { .. } => {},
-                HarnessEvent::Notice { speaker, text } => self.session().say(speaker, text),
-                other @ (HarnessEvent::Login(_) | HarnessEvent::SessionClosed(_)) => self.harness_events.push(other),
-            }
-        }
-        let events = self.session().poll();
-        self.events.extend(events);
-    }
-
-    fn reply(&mut self, reply: Reply) {
-        self.agent.reply(reply);
-        self.poll();
-    }
-
-    fn said(&self) -> Vec<(Speaker, String)> {
-        self.view()
-            .transcript
-            .items()
-            .iter()
-            .filter_map(|item| match item.content {
-                Content::Message(ref message) => Some((message.speaker, message.text.clone())),
-                Content::Tool(_) => None,
-            })
-            .collect()
-    }
-
-    fn said_by(&self, speaker: Speaker) -> Vec<String> {
-        self.said().into_iter().filter(|&(who, _)| who == speaker).map(|(_, text)| text).collect()
-    }
-
-    /// Submits `text`; true when the session took it.
-    fn send(&mut self, text: &str) -> bool {
-        self.harness.submit(self.viewing, text.into(), text.into())
-    }
-
-    fn session(&mut self) -> &mut Session {
-        self.harness.session_mut(self.viewing).unwrap()
-    }
-
-    fn text(&mut self, delta: &str) {
-        self.reply(Reply::Event(AgentEvent::Text(delta.to_owned())));
-    }
-
-    fn view(&self) -> &View {
-        self.harness.session(self.viewing).unwrap().view()
-    }
-
-    fn with_agent(agent: Rc<ScriptedAgent>) -> Self {
-        Self::build(agent, &[], fixture())
-    }
-
-    fn with_logged_in(providers: &[Provider]) -> Self {
-        Self::build(ScriptedAgent::new(), providers, fixture())
-    }
-
-    fn with_models(models: Arc<InMemoryModelsStore>) -> Self {
-        Self::build(ScriptedAgent::new(), &[], models)
-    }
-}
 
 fn bonsai() -> ModelSpec {
     ModelSpec::new(
@@ -150,7 +34,7 @@ fn device_code() -> LoginEvent {
 
 #[test]
 fn files_are_suggested_for_the_at_sign_and_referenced_files_are_attached_on_send() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.files.wait();
     let files = h.harness.suggest_files();
     assert_eq!(files.title, "Files");
@@ -166,28 +50,27 @@ fn files_are_suggested_for_the_at_sign_and_referenced_files_are_attached_on_send
 
 #[test]
 fn loaded_skills_are_announced_in_the_transcript() {
-    let h = Harness::with_agent(ScriptedAgent::new().with_skill("demo", "a demo").with_skill("tdd", "Test first"));
+    let h = TestHarness::with_agent(ScriptedAgent::new().with_skill("demo", "a demo").with_skill("tdd", "Test first"));
     assert_eq!(h.said(), [(Speaker::Skills, "2 loaded\ndemo, tdd".to_owned())]);
 }
 
 #[test]
 fn no_skills_means_no_announcement() {
-    assert_empty(Harness::new().said());
+    assert_empty(TestHarness::new().said());
 }
 
 #[test]
 fn a_startup_notice_is_a_harness_notice_shown_as_an_error() {
-    let mut h = Harness::new();
-    h.harness =
-        mem::replace(&mut h.harness, CoreHarness::new(Scripted::new(ScriptedAgent::new(), &[]).services(fixture())))
-            .with_notice("Could not read auth.json.");
+    let mut h = TestHarness::new();
+    h.harness = mem::replace(&mut h.harness, Harness::new(Scripted::new(ScriptedAgent::new(), &[]).services(models())))
+        .with_notice("Could not read auth.json.");
     h.poll();
     assert_eq!(h.said_by(Speaker::Error), ["Could not read auth.json."]);
 }
 
 #[test]
 fn sending_shows_the_message_starts_a_turn_and_is_accepted() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     assert!(h.send("hello"));
     assert_eq!(h.said(), [(Speaker::You, "hello".to_owned())]);
     assert_eq!(h.agent.prompts(), ["hello"]);
@@ -196,7 +79,7 @@ fn sending_shows_the_message_starts_a_turn_and_is_accepted() {
 
 #[test]
 fn an_empty_prompt_starts_no_turn() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     assert!(!h.send(""));
     assert_empty(h.agent.prompts());
     assert!(!h.view().busy);
@@ -204,7 +87,7 @@ fn an_empty_prompt_starts_no_turn() {
 
 #[test]
 fn a_second_prompt_is_not_accepted_while_a_turn_is_running() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("first");
     assert!(!h.send("second"));
     assert_eq!(h.agent.prompts(), ["first"]);
@@ -213,7 +96,7 @@ fn a_second_prompt_is_not_accepted_while_a_turn_is_running() {
 
 #[test]
 fn a_finished_turn_lets_the_next_prompt_go() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("first");
     h.done();
     assert!(h.send("second"));
@@ -222,7 +105,7 @@ fn a_finished_turn_lets_the_next_prompt_go() {
 
 #[test]
 fn a_failed_turn_shows_the_error_and_ends_the_turn() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("first");
     h.reply(Reply::Failed("connection refused".into()));
     assert_eq!(h.said_by(Speaker::Error), ["connection refused"]);
@@ -233,7 +116,7 @@ fn a_failed_turn_shows_the_error_and_ends_the_turn() {
 
 #[test]
 fn the_reply_streams_into_the_transcript() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hi");
     h.text("Hello ");
     h.text("**there**");
@@ -242,7 +125,7 @@ fn the_reply_streams_into_the_transcript() {
 
 #[test]
 fn tool_calls_are_tracked_and_failures_are_marked() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("look");
     for (summary, result) in
         [("read_file(a)", ToolResult::ok("contents")), ("read_file(../b)", ToolResult::error("outside"))]
@@ -265,7 +148,7 @@ fn tool_calls_are_tracked_and_failures_are_marked() {
 
 #[test]
 fn usage_is_counted_in_the_stats() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hi");
     h.reply(Reply::Done {
         usage: Some(Usage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, ..Default::default() }),
@@ -276,20 +159,20 @@ fn usage_is_counted_in_the_stats() {
 
 #[test]
 fn the_view_starts_with_the_settings_and_empty_stats() {
-    let h = Harness::new();
+    let h = TestHarness::new();
     assert_eq!(h.view().settings.model, Some(bonsai()));
     assert_eq!(h.view().stats, Stats::default());
 }
 
 #[test]
 fn the_view_has_no_model_when_none_is_selected() {
-    let h = Harness::with_agent(ScriptedAgent::new().without_model());
+    let h = TestHarness::with_agent(ScriptedAgent::new().without_model());
     assert_eq!(h.view().settings.model, None);
 }
 
 #[test]
 fn cancelling_with_nothing_to_cancel_changes_nothing() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.cancel();
     assert!(h.events.is_empty());
     assert_eq!(h.agent.interrupted(), 0);
@@ -297,7 +180,7 @@ fn cancelling_with_nothing_to_cancel_changes_nothing() {
 
 #[test]
 fn cancelling_interrupts_a_running_turn() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hi");
     h.cancel();
     assert_eq!(h.agent.interrupted(), 1);
@@ -305,14 +188,14 @@ fn cancelling_interrupts_a_running_turn() {
 
 #[test]
 fn a_prompt_that_looks_like_a_command_is_sent_as_typed() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("/nothing");
     assert_eq!(h.agent.prompts(), ["/nothing"]);
 }
 
 #[test]
 fn the_device_code_is_shown_and_kept_in_the_view_while_the_login_waits() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("github-copilot").unwrap());
     h.worker.event(device_code());
     h.poll();
@@ -324,7 +207,7 @@ fn the_device_code_is_shown_and_kept_in_the_view_while_the_login_waits() {
 
 #[test]
 fn finishing_a_login_says_so_and_clears_the_login_state() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("anthropic").unwrap());
     h.worker.event(device_code());
     h.worker.event(LoginEvent::Done(Provider::builtin("anthropic").unwrap()));
@@ -335,7 +218,7 @@ fn finishing_a_login_says_so_and_clears_the_login_state() {
 
 #[test]
 fn a_failed_login_shows_the_error() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("github-copilot").unwrap());
     h.worker.event(LoginEvent::Failed("device flow failed: access_denied".into()));
     h.poll();
@@ -344,7 +227,7 @@ fn a_failed_login_shows_the_error() {
 
 #[test]
 fn an_api_key_goes_to_the_login_and_never_to_the_agent() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste your OpenAI API key (input is hidden)".into() });
     h.poll();
@@ -358,7 +241,7 @@ fn an_api_key_goes_to_the_login_and_never_to_the_agent() {
 
 #[test]
 fn cancel_ends_a_pending_login() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
     h.poll();
@@ -374,7 +257,7 @@ fn cancel_ends_a_pending_login() {
 
 #[test]
 fn a_login_event_after_a_cancel_does_not_bring_the_key_prompt_back() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
     h.cancel();
@@ -384,7 +267,7 @@ fn a_login_event_after_a_cancel_does_not_bring_the_key_prompt_back() {
 
 #[test]
 fn refresh_models_starts_a_refresh_of_every_provider_and_reports_each_one() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.refresh_models();
     h.poll();
     assert_eq!(h.refresh_worker.started(), [Provider::builtins()]);
@@ -405,7 +288,7 @@ fn refresh_models_starts_a_refresh_of_every_provider_and_reports_each_one() {
 
 #[test]
 fn a_second_refresh_waits_for_the_first_and_refresh_works_while_a_turn_runs() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hello");
     h.harness.refresh_models();
     h.harness.refresh_models();
@@ -416,7 +299,7 @@ fn a_second_refresh_waits_for_the_first_and_refresh_works_while_a_turn_runs() {
 
 #[test]
 fn logging_in_refreshes_just_that_provider() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::Done(Provider::builtin("openai").unwrap()));
     h.poll();
@@ -431,7 +314,7 @@ fn logging_in_refreshes_just_that_provider() {
 
 #[test]
 fn a_failed_login_does_not_refresh_anything() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("github-copilot").unwrap());
     h.worker.event(LoginEvent::Failed("device flow failed".into()));
     h.poll();
@@ -440,7 +323,7 @@ fn a_failed_login_does_not_refresh_anything() {
 
 #[test]
 fn login_works_while_a_turn_runs() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hello");
     h.harness.login(Provider::builtin("openai").unwrap());
     assert_eq!(h.worker.started(), [Provider::builtin("openai").unwrap()]);
@@ -448,14 +331,14 @@ fn login_works_while_a_turn_runs() {
 
 #[test]
 fn polling_with_nothing_pending_changes_nothing() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.poll();
     assert!(h.harness.poll().is_empty());
 }
 
 #[test]
 fn the_view_follows_the_events_it_emitted() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     let mut mirror = h.view().clone();
     h.send("hi");
     h.text("hello");
@@ -479,7 +362,7 @@ fn the_view_follows_the_events_it_emitted() {
 
 #[test]
 fn the_skills_are_listed_and_expanded_when_sent() {
-    let mut h = Harness::with_agent(ScriptedAgent::new().with_skill("tdd", "Test first"));
+    let mut h = TestHarness::with_agent(ScriptedAgent::new().with_skill("tdd", "Test first"));
     let skills = h.session().skills();
     assert_eq!(skills[0].name, "tdd");
 
@@ -490,7 +373,7 @@ fn the_skills_are_listed_and_expanded_when_sent() {
 
 #[test]
 fn setting_a_model_applies_it_and_updates_the_settings() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     let llama = ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("llama3.2:3b"));
     assert!(h.harness.models().iter().any(|entry| entry.0 == llama));
     assert_eq!(h.session().set_model(llama.clone()), Ok(()));
@@ -501,7 +384,7 @@ fn setting_a_model_applies_it_and_updates_the_settings() {
 
 #[test]
 fn setting_a_thinking_level_applies_it_and_updates_the_settings() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.session().set_thinking(Thinking::High);
     assert_eq!(h.agent.settings().thinking, Thinking::High);
     assert_eq!(h.view().settings.thinking, Thinking::High);
@@ -509,7 +392,7 @@ fn setting_a_thinking_level_applies_it_and_updates_the_settings() {
 
 #[test]
 fn clear_empties_the_transcript_and_the_conversation() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hello");
     h.done();
     assert_eq!(h.session().clear(), Ok(()));
@@ -519,7 +402,7 @@ fn clear_empties_the_transcript_and_the_conversation() {
 
 #[test]
 fn compacting_keeps_the_session_busy_until_the_agent_is_done_and_waits_for_an_idle_one() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     assert_eq!(h.session().compact(Some("the parser".into())), Ok(()));
     assert!(h.view().busy);
     assert_eq!(h.session().compact(None), Err(Refusal::Busy));
@@ -530,7 +413,7 @@ fn compacting_keeps_the_session_busy_until_the_agent_is_done_and_waits_for_an_id
 
 #[test]
 fn model_and_clear_are_refused_while_a_turn_runs() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hello");
     assert_eq!(h.session().clear(), Err(Refusal::Busy));
     assert_eq!(h.agent.cleared(), 0);
@@ -541,7 +424,7 @@ fn model_and_clear_are_refused_while_a_turn_runs() {
 
 #[test]
 fn the_models_are_whatever_the_store_holds_across_providers() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     let gpt = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4o"));
     assert!(h.harness.models().iter().any(|entry| entry.0 == gpt));
     h.session().set_model(gpt.clone()).unwrap();
@@ -551,13 +434,13 @@ fn the_models_are_whatever_the_store_holds_across_providers() {
 
 #[test]
 fn an_empty_store_has_no_models() {
-    let h = Harness::with_models(store_with(&[]));
+    let h = TestHarness::with_models(store_with(&[]));
     assert_empty(h.harness.models());
 }
 
 #[test]
 fn logging_in_starts_the_provider_and_shows_it() {
-    let mut h = Harness::with_logged_in(&[Provider::builtin("openai").unwrap()]);
+    let mut h = TestHarness::with_logged_in(&[Provider::builtin("openai").unwrap()]);
     assert_eq!(h.harness.login_state(Provider::builtin("openai").unwrap()), LoginState::Saved);
     assert_eq!(h.harness.login_state(Provider::builtin("github-copilot").unwrap()), LoginState::NotLoggedIn);
     h.harness.login(Provider::builtin("github-copilot").unwrap());
@@ -574,14 +457,14 @@ fn the_login_list_adds_custom_providers_that_need_a_key() {
     let mut gateway = Provider::custom("gateway");
     gateway.display_name = "Gateway".into();
     models.save(&gateway).unwrap();
-    let h = Harness::with_models(models);
+    let h = TestHarness::with_models(models);
     let ids: Vec<String> = h.harness.login_providers().into_iter().map(|p| p.id).collect();
     assert_eq!(ids, ["github-copilot", "openai", "anthropic", "google", "gateway"]);
 }
 
 #[test]
 fn logout_removes_the_saved_login() {
-    let mut h = Harness::with_logged_in(&[Provider::builtin("github-copilot").unwrap()]);
+    let mut h = TestHarness::with_logged_in(&[Provider::builtin("github-copilot").unwrap()]);
     assert_eq!(h.harness.saved_logins(), [Provider::builtin("github-copilot").unwrap()]);
     h.harness.logout(Provider::builtin("github-copilot").unwrap());
     h.poll();
@@ -592,7 +475,7 @@ fn logout_removes_the_saved_login() {
 
 #[test]
 fn a_session_that_is_not_viewed_keeps_receiving_its_replies() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.send("hello");
     h.harness.start_session_with(2, Box::new(ScriptedAgent::new()));
     h.viewing = 2;
@@ -614,7 +497,7 @@ fn a_session_that_is_not_viewed_keeps_receiving_its_replies() {
 
 #[test]
 fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     let other = ScriptedAgent::new();
     h.harness.start_session_with(2, Box::new(Rc::clone(&other)));
     assert!(h.harness.submit(1, "to one".into(), "to one".into()));
@@ -631,7 +514,7 @@ fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
 
 #[test]
 fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.start_session_with(2, Box::new(ScriptedAgent::new()));
     h.harness.login(Provider::builtin("github-copilot").unwrap());
     h.worker.event(device_code());
@@ -642,7 +525,7 @@ fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
 
 #[test]
 fn notices_belong_to_no_session() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.login(Provider::builtin("github-copilot").unwrap());
     let events = h.harness.poll();
     assert!(events.iter().any(|e| matches!(
@@ -657,9 +540,9 @@ fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
     use crate::persona::{Info as PersonaInfo, Persona};
 
     let scripted = Scripted::new(ScriptedAgent::new(), &[]);
-    let mut services = scripted.services(fixture());
+    let mut services = scripted.services(models());
     services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
-    let mut harness = CoreHarness::new(services);
+    let mut harness = Harness::new(services);
     assert_eq!(
         harness.list_personas(),
         [PersonaInfo { key: "helper".into(), name: "Helper".into(), description: "helps".into() }]
@@ -681,7 +564,7 @@ fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
 
 #[test]
 fn closing_a_session_stops_its_turn_and_forgets_it() {
-    let mut h = Harness::new();
+    let mut h = TestHarness::new();
     h.harness.start_session_with(2, Box::new(ScriptedAgent::new()));
     h.harness.submit(1, "hi".into(), "hi".into());
 

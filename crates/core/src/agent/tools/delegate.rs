@@ -122,13 +122,18 @@ impl Tool for Delegate {
 mod tests {
     use super::*;
     use crate::agent::delegation::Delegation;
-    use crate::agent::tools::delegation_fixtures::{delegate_calls, reply, result_of, root, turn};
     use crate::test::assert_empty;
+    use crate::test::client::{reply, tool_calls};
+    use crate::test::fixtures::{result_of, root, turn};
 
     #[tokio::test]
     async fn delegating_starts_a_sub_agent_that_plays_the_named_persona() {
         let (root, _) = root(
-            vec![delegate_calls(&[("c1", r#"{"task":"look","persona":"tester"}"#)]), reply("found"), reply("done")],
+            vec![
+                tool_calls("delegate", &[("c1", r#"{"task":"look","persona":"tester"}"#)]),
+                reply("found"),
+                reply("done"),
+            ],
             Delegation::default(),
         );
         let (results, _) = turn(&root).await;
@@ -144,7 +149,7 @@ mod tests {
     #[tokio::test]
     async fn without_a_persona_the_sub_agent_plays_the_roots_own() {
         let (root, _) = root(
-            vec![delegate_calls(&[("c1", r#"{"task":"look"}"#)]), reply("found"), reply("done")],
+            vec![tool_calls("delegate", &[("c1", r#"{"task":"look"}"#)]), reply("found"), reply("done")],
             Delegation::default(),
         );
         turn(&root).await;
@@ -154,7 +159,7 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_persona_is_an_error_and_starts_nothing() {
         let (root, _) = root(
-            vec![delegate_calls(&[("c1", r#"{"task":"look","persona":"ghost"}"#)]), reply("done")],
+            vec![tool_calls("delegate", &[("c1", r#"{"task":"look","persona":"ghost"}"#)]), reply("done")],
             Delegation::default(),
         );
         let (results, _) = turn(&root).await;
@@ -167,9 +172,9 @@ mod tests {
     async fn a_session_at_its_limit_refuses_with_an_error_result() {
         let (root, _) = root(
             vec![
-                delegate_calls(&[("c1", r#"{"task":"one","persona":"tester"}"#)]),
+                tool_calls("delegate", &[("c1", r#"{"task":"one","persona":"tester"}"#)]),
                 reply("a"),
-                delegate_calls(&[("c2", r#"{"task":"two","persona":"tester"}"#)]),
+                tool_calls("delegate", &[("c2", r#"{"task":"two","persona":"tester"}"#)]),
                 reply("done"),
             ],
             Delegation { max_per_session: 1, ..Delegation::default() },
@@ -183,7 +188,11 @@ mod tests {
     #[tokio::test]
     async fn the_sub_agent_cannot_delegate_so_it_does_not_have_the_tool() {
         let (root, _) = root(
-            vec![delegate_calls(&[("c1", r#"{"task":"look","persona":"tester"}"#)]), reply("found"), reply("done")],
+            vec![
+                tool_calls("delegate", &[("c1", r#"{"task":"look","persona":"tester"}"#)]),
+                reply("found"),
+                reply("done"),
+            ],
             Delegation::default(),
         );
         turn(&root).await;
@@ -223,10 +232,10 @@ mod tests {
     async fn read_only_delegations_in_one_step_run_together() {
         let (root, _) = root(
             vec![
-                delegate_calls(&[
-                    ("a", r#"{"task":"1","persona":"reader"}"#),
-                    ("b", r#"{"task":"2","persona":"reader"}"#),
-                ]),
+                tool_calls(
+                    "delegate",
+                    &[("a", r#"{"task":"1","persona":"reader"}"#), ("b", r#"{"task":"2","persona":"reader"}"#)],
+                ),
                 reply("first"),
                 reply("second"),
                 reply("done"),
@@ -245,10 +254,10 @@ mod tests {
     async fn delegations_that_may_edit_run_one_after_another() {
         let (root, _) = root(
             vec![
-                delegate_calls(&[
-                    ("a", r#"{"task":"1","persona":"tester"}"#),
-                    ("b", r#"{"task":"2","persona":"tester"}"#),
-                ]),
+                tool_calls(
+                    "delegate",
+                    &[("a", r#"{"task":"1","persona":"tester"}"#), ("b", r#"{"task":"2","persona":"tester"}"#)],
+                ),
                 reply("first"),
                 reply("second"),
                 reply("done"),
@@ -257,5 +266,22 @@ mod tests {
         );
         let (_, order) = turn(&root).await;
         assert_eq!(order, ["start a", "finish a", "start b", "finish b"]);
+    }
+
+    #[tokio::test]
+    async fn the_fixture_owns_the_workspace_a_delegated_agent_writes_to() {
+        let (root, _) = root(
+            vec![
+                tool_calls("delegate", &[("c1", r#"{"task":"write it","persona":"tester"}"#)]),
+                tool_calls("write_file", &[("w1", r#"{"path":"made.txt","content":"hi"}"#)]),
+                reply("wrote it"),
+                reply("done"),
+            ],
+            Delegation::default(),
+        );
+        let (results, _) = turn(&root).await;
+
+        assert!(!result_of(&results, "c1").is_error);
+        assert_eq!(std::fs::read_to_string(root.path().join("made.txt")).unwrap(), "hi");
     }
 }

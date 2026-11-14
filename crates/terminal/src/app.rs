@@ -427,8 +427,8 @@ mod tests {
     use thoth_core::harness;
     use thoth_core::llm::client::chat::Usage;
     use thoth_core::llm::provider::Provider;
-    use thoth_core::models::testing::fixture;
-    use thoth_core::test::scripted::Scripted;
+    use thoth_core::test::fixtures::models as fixture;
+    use thoth_core::test::harness::Scripted;
 
     const WIDTH: u16 = 100;
     const HEIGHT: u16 = 16;

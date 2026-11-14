@@ -10,14 +10,14 @@ use super::responses::{Client as ResponsesClient, Config as ResponsesConfig};
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, StreamedCompletion};
 
 #[cfg(any(test, feature = "testing"))]
-use super::fake::Client as FakeClient;
+use crate::test::client::Client as ScriptedClient;
 
 #[derive(Debug)]
 /// A client of any protocol.
 pub enum Client {
     Anthropic(AnthropicClient),
     #[cfg(any(test, feature = "testing"))]
-    Fake(FakeClient),
+    Scripted(ScriptedClient),
     OpenAi(OpenAiClient),
     Responses(ResponsesClient),
 }
@@ -63,7 +63,7 @@ impl LlmClient for Client {
             Self::Anthropic(ref client) => client.create_completion_stream(request, on_delta).await,
             Self::Responses(ref client) => client.create_completion_stream(request, on_delta).await,
             #[cfg(any(test, feature = "testing"))]
-            Self::Fake(ref client) => client.create_completion_stream(request, on_delta).await,
+            Self::Scripted(ref client) => client.create_completion_stream(request, on_delta).await,
         }
     }
 }
