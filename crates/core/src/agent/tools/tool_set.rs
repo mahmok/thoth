@@ -18,20 +18,26 @@ impl fmt::Display for DuplicateTool {
 
 impl error::Error for DuplicateTool {}
 
+#[derive(Debug)]
+/// One registered Tool: what the model is told about it, and the Tool itself.
+struct Entry {
+    spec: ToolSpec,
+    tool: Box<dyn ErasedTool>,
+}
+
 #[derive(Default, Debug)]
 /// The Tools an Agent can call.
 pub struct ToolSet {
-    specs: Vec<ToolSpec>,
-    tokens: usize,
     //TODO: Maybe convert to hashmap or tree.
-    tools: Vec<Box<dyn ErasedTool>>,
+    entries: Vec<Entry>,
 }
 
 impl ToolSet {
     #[must_use]
     #[inline]
-    pub fn definitions(&self) -> &[ToolSpec] {
-        &self.specs
+    /// The definitions the model is sent, in registration order.
+    pub fn definitions(&self) -> impl ExactSizeIterator<Item = &ToolSpec> + '_ {
+        self.entries.iter().map(|entry| &entry.spec)
     }
 
     #[must_use]
@@ -46,12 +52,14 @@ impl ToolSet {
 
     #[must_use]
     #[inline]
-    pub const fn estimated_tokens(&self) -> usize {
-        self.tokens
+    /// The rough tokens the definitions cost in every request. Recomputed rather than cached, so
+    /// the estimate cannot drift from the definitions it describes.
+    pub fn estimated_tokens(&self) -> usize {
+        self.entries.iter().map(|entry| spec_tokens(&entry.spec)).sum()
     }
 
     fn find(&self, name: &str) -> Option<&dyn ErasedTool> {
-        self.tools.iter().map(AsRef::as_ref).find(|t| t.tool_name() == name)
+        self.entries.iter().find(|entry| entry.spec.name == name).map(|entry| entry.tool.as_ref())
     }
 
     #[must_use]
@@ -70,14 +78,11 @@ impl ToolSet {
     where
         T: Tool,
     {
-        let name = Tool::name(&tool);
-        if self.find(name).is_some() {
-            return Err(DuplicateTool(name.to_owned()));
-        }
         let spec = tool.spec();
-        self.tokens = self.tokens.saturating_add(spec_tokens(&spec));
-        self.specs.push(spec);
-        self.tools.push(Box::new(tool));
+        if self.find(&spec.name).is_some() {
+            return Err(DuplicateTool(spec.name));
+        }
+        self.entries.push(Entry { spec, tool: Box::new(tool) });
         Ok(())
     }
 
@@ -87,9 +92,7 @@ impl ToolSet {
     where
         Callback: Fn(&str) -> bool,
     {
-        self.tools.retain(|tool| keep(tool.tool_name()));
-        self.specs.retain(|spec| keep(&spec.name));
-        self.tokens = self.specs.iter().map(spec_tokens).sum();
+        self.entries.retain(|entry| keep(&entry.spec.name));
     }
 
     #[inline]
@@ -99,6 +102,21 @@ impl ToolSet {
             Some(tool) => tool.call(raw_arguments, cx).await,
             None => ToolResult::error(format!("unknown tool `{name}`")),
         }
+    }
+
+    /// Whether every call to the Tool called `name` only reads. An unknown tool is not read-only,
+    /// which is the cautious answer.
+    #[must_use]
+    #[inline]
+    pub fn is_read_only(&self, name: &str) -> bool {
+        self.find(name).is_some_and(|tool| tool.is_read_only())
+    }
+
+    /// Whether `value` parses as the arguments of the Tool called `name`, so a test can prove the
+    /// schema a Tool shows the model is the arguments it accepts.
+    #[cfg(test)]
+    pub(super) fn accepts(&self, name: &str, value: &serde_json::Value) -> bool {
+        self.find(name).is_some_and(|tool| tool.accepts(value))
     }
 
     /// The traits of one call; an unknown tool has the cautious defaults.
@@ -119,6 +137,7 @@ fn spec_tokens(spec: &ToolSpec) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::tools::tool::Description;
     use core::future;
     use serde::Deserialize;
     use serde_json::{Value, json};
@@ -134,12 +153,8 @@ mod tests {
     impl Tool for Echo {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Echo the text back"
-        }
-
-        fn name(&self) -> &'static str {
-            "echo"
+        fn describe(&self) -> Description {
+            Description { description: "Echo the text back", name: "echo" }
         }
 
         fn parameters(&self) -> Value {
@@ -152,11 +167,6 @@ mod tests {
 
         fn summary(&self, args: &EchoArgs) -> String {
             args.text.clone()
-        }
-
-        #[inline]
-        fn traits(&self) -> ToolTraits {
-            ToolTraits::default()
         }
 
         #[inline]
@@ -198,6 +208,42 @@ mod tests {
     }
 
     #[test]
+    fn asking_whether_a_tool_reads_uses_its_declared_answer_not_its_arguments() {
+        // A Tool whose individual calls differ still has to answer without arguments.
+        #[derive(Debug)]
+        struct Sometimes;
+
+        impl Tool for Sometimes {
+            type Args = EchoArgs;
+
+            fn describe(&self) -> Description {
+                Description { description: "sometimes reads", name: "sometimes" }
+            }
+
+            fn parameters(&self) -> Value {
+                json!({ "type": "object", "properties": { "text": { "type": "string" } } })
+            }
+
+            async fn run(&self, args: EchoArgs, _cx: &ToolContext) -> ToolResult {
+                ToolResult::ok(args.text)
+            }
+
+            fn summary(&self, args: &EchoArgs) -> String {
+                args.text.clone()
+            }
+
+            fn traits_for(&self, _args: &EchoArgs) -> ToolTraits {
+                ToolTraits::read_only()
+            }
+        }
+
+        let mut set = ToolSet::new();
+        set.register(Sometimes).unwrap();
+        assert!(!set.is_read_only("sometimes"), "the declared traits decide, not the arguments");
+        assert!(!set.is_read_only("unknown"));
+    }
+
+    #[test]
     fn the_definitions_have_a_token_estimate_that_grows_with_each_tool() {
         let mut set = ToolSet::new();
         assert_eq!(set.estimated_tokens(), 0);
@@ -210,7 +256,7 @@ mod tests {
         let mut set = set();
         let before = set.estimated_tokens();
         set.retain(|name| name != "echo");
-        assert_eq!(set.definitions(), []);
+        assert_eq!(set.definitions().count(), 0);
         assert_eq!(set.estimated_tokens(), 0);
         assert!(before > 0);
     }
@@ -224,7 +270,7 @@ mod tests {
     #[test]
     fn definitions_describe_every_tool() {
         let set = set();
-        let defs = set.definitions();
+        let defs: Vec<&ToolSpec> = set.definitions().collect();
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].name, "echo");
         assert_eq!(defs[0].description, "Echo the text back");

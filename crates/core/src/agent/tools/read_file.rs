@@ -2,7 +2,7 @@ use core::fmt::Write as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
 use crate::workspace::{MAX_READ_BYTES, ReadPolicy, Workspace, truncate};
 
 /// The largest file `read_file` loads. It is read whole before being cut to what the model may see.
@@ -35,12 +35,8 @@ pub(super) struct ReadFileArgs {
 impl Tool for ReadFile {
     type Args = ReadFileArgs;
 
-    fn description(&self) -> &'static str {
-        "Read a text file, from the working directory or anywhere else on disk (absolute paths work). Long files are cut off with a note that says which line to continue from; use start_line/end_line to read a part of a file."
-    }
-
-    fn name(&self) -> &'static str {
-        "read_file"
+    fn describe(&self) -> Description {
+        Description { description: "Read a text file, from the working directory or anywhere else on disk (absolute paths work). Long files are cut off with a note that says which line to continue from; use start_line/end_line to read a part of a file.", name: "read_file" }
     }
 
     fn parameters(&self) -> Value {
@@ -68,10 +64,6 @@ impl Tool for ReadFile {
         ToolTraits::read_only()
     }
 
-    #[inline]
-    fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-        self.traits()
-    }
 }
 
 /// Runs `read_file`: a file, or a range of its lines.

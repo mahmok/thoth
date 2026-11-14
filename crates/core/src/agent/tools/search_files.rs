@@ -7,7 +7,7 @@ use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
 use super::walk::{MAX_DEPTH, PathFilter, walk};
 use crate::workspace::{Workspace, current_dir};
 
@@ -49,14 +49,10 @@ pub(super) struct SearchFilesArgs {
 impl Tool for SearchFiles {
     type Args = SearchFilesArgs;
 
-    fn description(&self) -> &'static str {
-        "Search file contents under a path. The query is literal, case-sensitive text unless regex is true (a Rust regular expression) or ignore_case is true. \
+    fn describe(&self) -> Description {
+        Description { description: "Search file contents under a path. The query is literal, case-sensitive text unless regex is true (a Rust regular expression) or ignore_case is true. \
          Use glob (such as \"*.rs\" or \"src/**/*.ts\") to search only some files. The path can be in the working directory or anywhere else on disk (absolute paths work). \
-         Returns path:line: text matches; .gitignore'd files, build directories and files over 1 MB are skipped."
-    }
-
-    fn name(&self) -> &'static str {
-        "search_files"
+         Returns path:line: text matches; .gitignore'd files, build directories and files over 1 MB are skipped.", name: "search_files" }
     }
 
     fn parameters(&self) -> Value {
@@ -86,10 +82,6 @@ impl Tool for SearchFiles {
         ToolTraits::read_only()
     }
 
-    #[inline]
-    fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-        self.traits()
-    }
 }
 
 /// The lines of the answer, and how many of them are matches (the rest are notes).

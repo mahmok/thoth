@@ -25,7 +25,7 @@ use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::client::any::Client as AnyClient;
 use crate::llm::client::chat::{ToolCall, Usage};
 use crate::llm::client::error::Failure as ClientError;
-use crate::llm::client::{CreateCompletionRequest, Delta, Llm as _, StreamedCompletion, ToolChoice};
+use crate::llm::client::{CreateCompletionRequest, Delta, Llm as _, StreamedCompletion, ToolChoice, ToolSpec};
 use crate::llm::provider::ModelSpec;
 use crate::llm::thinking::Thinking;
 use crate::sync::{MutexExt as _, RwLockExt as _};
@@ -628,11 +628,12 @@ impl Agent {
         let mut recovered = false;
         loop {
             let client = self.client()?;
+            let definitions: Vec<ToolSpec> = self.tools.definitions().cloned().collect();
             let result = client
                 .create_completion_stream(
                     CreateCompletionRequest {
                         messages: turn.messages(),
-                        tools: self.tools.definitions(),
+                        tools: &definitions,
                         thinking: self.thinking(),
                         tool_choice,
                     },
@@ -820,7 +821,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::agent::tools::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits};
+    use crate::agent::tools::tool::{
+        Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits,
+    };
     use crate::agent::tools::tool_set::ToolSet;
     use crate::llm::client::StreamedCompletion;
     use crate::llm::client::ToolChoice;
@@ -847,12 +850,8 @@ mod tests {
     impl Tool for Echo {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Echo the text back"
-        }
-
-        fn name(&self) -> &'static str {
-            "echo"
+        fn describe(&self) -> Description {
+            Description { description: "Echo the text back", name: "echo" }
         }
 
         fn parameters(&self) -> Value {
@@ -885,12 +884,8 @@ mod tests {
     impl Tool for Peek {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Look at the text"
-        }
-
-        fn name(&self) -> &'static str {
-            "peek"
+        fn describe(&self) -> Description {
+            Description { description: "Look at the text", name: "peek" }
         }
 
         fn parameters(&self) -> Value {
@@ -924,12 +919,8 @@ mod tests {
     impl Tool for Probe {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Report what the call can see"
-        }
-
-        fn name(&self) -> &'static str {
-            "probe"
+        fn describe(&self) -> Description {
+            Description { description: "Report what the call can see", name: "probe" }
         }
 
         fn parameters(&self) -> Value {
@@ -965,12 +956,8 @@ mod tests {
     impl Tool for CancelParent {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Cancel the Turn"
-        }
-
-        fn name(&self) -> &'static str {
-            "cancel_parent"
+        fn describe(&self) -> Description {
+            Description { description: "Cancel the Turn", name: "cancel_parent" }
         }
 
         fn parameters(&self) -> Value {
@@ -1005,12 +992,8 @@ mod tests {
     impl Tool for Spend {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Use another model"
-        }
-
-        fn name(&self) -> &'static str {
-            "spend"
+        fn describe(&self) -> Description {
+            Description { description: "Use another model", name: "spend" }
         }
 
         fn parameters(&self) -> Value {
@@ -1048,12 +1031,8 @@ mod tests {
     impl Tool for Sleepy {
         type Args = EchoArgs;
 
-        fn description(&self) -> &'static str {
-            "Wait"
-        }
-
-        fn name(&self) -> &'static str {
-            "sleepy"
+        fn describe(&self) -> Description {
+            Description { description: "Wait", name: "sleepy" }
         }
 
         fn parameters(&self) -> Value {

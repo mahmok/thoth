@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::fs;
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
 use crate::workspace::{Workspace, current_dir};
 
 /// The most entries listed.
@@ -31,13 +31,9 @@ pub(super) struct ListDirectoryArgs {
 impl Tool for ListDirectory {
     type Args = ListDirectoryArgs;
 
-    fn description(&self) -> &'static str {
-        "List the entries of a directory, in the working directory or anywhere else on disk (absolute paths work). Directories end with '/'. \
-         It lists one level only; to find files deeper down, use find_files."
-    }
-
-    fn name(&self) -> &'static str {
-        "list_directory"
+    fn describe(&self) -> Description {
+        Description { description: "List the entries of a directory, in the working directory or anywhere else on disk (absolute paths work). Directories end with '/'. \
+         It lists one level only; to find files deeper down, use find_files.", name: "list_directory" }
     }
 
     fn parameters(&self) -> Value {
@@ -62,10 +58,6 @@ impl Tool for ListDirectory {
         ToolTraits::read_only()
     }
 
-    #[inline]
-    fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-        self.traits()
-    }
 }
 
 /// Runs `list_directory`.

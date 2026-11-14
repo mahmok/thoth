@@ -7,7 +7,7 @@ use crate::agent::{Agent, COMPACTION_CALL_ID, Event as AgentEvent, Failure as Ag
 use crate::llm::client::any::Client as AnyClient;
 use crate::llm::client::chat::{Message, Role, Usage};
 use crate::llm::client::error::Failure as ClientError;
-use crate::llm::client::{CreateCompletionRequest, Llm as _, StreamedCompletion, ToolChoice};
+use crate::llm::client::{CreateCompletionRequest, Llm as _, StreamedCompletion, ToolChoice, ToolSpec};
 use core::fmt::Write as _;
 
 /// The prefix of a summary message.
@@ -122,12 +122,8 @@ impl Agent {
         messages: &[Message],
         tool_choice: ToolChoice,
     ) -> Result<StreamedCompletion, ClientError> {
-        let request = CreateCompletionRequest {
-            messages,
-            tools: self.tools.definitions(),
-            thinking: self.thinking(),
-            tool_choice,
-        };
+        let definitions: Vec<ToolSpec> = self.tools.definitions().cloned().collect();
+        let request = CreateCompletionRequest { messages, tools: &definitions, thinking: self.thinking(), tool_choice };
         client.create_completion_stream(request, |_| {}).await
     }
 

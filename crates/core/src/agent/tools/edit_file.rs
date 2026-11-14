@@ -9,7 +9,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use similar::TextDiff;
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, blocking};
 use crate::workspace::{Workspace, truncate};
 
 /// Lines of context around a change in the diff.
@@ -110,17 +110,13 @@ impl EditFileArgs {
 impl Tool for EditFile {
     type Args = EditFileArgs;
 
-    fn description(&self) -> &'static str {
-        "Make surgical edits to an existing text file; to create a file use write_file. Each edit replaces one exact occurrence of oldText with newText. \
+    fn describe(&self) -> Description {
+        Description { description: "Make surgical edits to an existing text file; to create a file use write_file. Each edit replaces one exact occurrence of oldText with newText. \
          For one change, pass path, oldText and newText directly. For several changes in one file, pass path and edits: an array of { oldText, newText } objects (a real array, not a string). \
          Copy oldText exactly from the file as read_file shows it, including indentation. \
          Every oldText is matched against the original file, must occur exactly once (or set replaceAll to change every occurrence), and must not overlap another edit. \
          Include enough surrounding lines in oldText to make it unique. The file is left unchanged if any edit fails, and the error lists every edit that failed. \
-         Paths are relative to the working directory and must stay inside it."
-    }
-
-    fn name(&self) -> &'static str {
-        "edit_file"
+         Paths are relative to the working directory and must stay inside it.", name: "edit_file" }
     }
 
     fn parameters(&self) -> Value {
@@ -159,15 +155,6 @@ impl Tool for EditFile {
         format!("{} ({count} edit{})", args.path, plural(count))
     }
 
-    #[inline]
-    fn traits(&self) -> ToolTraits {
-        ToolTraits::default()
-    }
-
-    #[inline]
-    fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-        self.traits()
-    }
 }
 
 /// Where one edit lands in the original text.
