@@ -2,6 +2,7 @@ use crate::command::{Choices, Command};
 use thoth_core::builtin::files::Suggestions;
 
 use super::{Completion, Picker, PickerView, Scope};
+use crate::keymap::PickerKey;
 use crate::mention::{self, Mention};
 
 /// Where the pickers' lists come from: the Session, asked only when a picker opens.
@@ -9,16 +10,6 @@ pub trait Catalog {
     fn commands(&mut self) -> Option<Vec<Command>>;
 
     fn suggestions(&mut self, trigger: char) -> Option<Suggestions>;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A key a picker understands.
-pub enum PickerKey {
-    Down,
-    Enter,
-    Esc,
-    Tab,
-    Up,
 }
 
 /// What a key did to a picker.
