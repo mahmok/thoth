@@ -68,6 +68,7 @@ struct Group {
     bindings: &'static [Binding],
     keys: &'static str,
     label: &'static str,
+    show_hint: bool,
 }
 
 /// The hints of one Context.
@@ -92,28 +93,33 @@ const PICK_TAB: Binding = Binding::plain(KeyCode::Tab, Effect::Picker(PickerKey:
 const PICK_ESC: Binding = Binding::plain(KeyCode::Esc, Effect::Picker(PickerKey::Esc));
 
 const ALWAYS_GROUPS: &[Group] = &[
-    Group { keys: "Enter", label: "send", bindings: &[SEND] },
-    Group { keys: "Esc", label: "cancel", bindings: &[CANCEL] },
-    Group { keys: "/", label: "commands", bindings: &[] },
-    Group { keys: "@", label: "files", bindings: &[] },
-    Group { keys: "drag", label: "select & copy", bindings: &[] },
-    Group { keys: "click card", label: "expand", bindings: &[] },
-    Group { keys: "\u{2191}\u{2193}/PgUp/PgDn", label: "scroll", bindings: &[SCROLL_UP, SCROLL_DOWN, PAGE_UP, PAGE_DOWN] },
-    Group { keys: "CTRL+D", label: "quit", bindings: &[QUIT] },
+    Group { keys: "Enter", label: "send", bindings: &[SEND], show_hint: false },
+    Group { keys: "/", label: "commands", bindings: &[], show_hint: true },
+    Group { keys: "@", label: "files", bindings: &[], show_hint: true },
+    Group { keys: "drag", label: "select & copy", bindings: &[], show_hint: false },
+    Group { keys: "click card", label: "expand", bindings: &[], show_hint: false },
+    Group {
+        keys: "\u{2191}\u{2193}/PgUp/PgDn",
+        label: "scroll",
+        bindings: &[SCROLL_UP, SCROLL_DOWN, PAGE_UP, PAGE_DOWN],
+        show_hint: false,
+    },
+    Group { keys: "Esc", label: "cancel", bindings: &[CANCEL], show_hint: true },
+    Group { keys: "CTRL+D", label: "quit", bindings: &[QUIT], show_hint: true },
 ];
 
 const PICKER_GROUPS: &[Group] = &[
-    Group { keys: "\u{2191}\u{2193}", label: "select", bindings: &[PICK_UP, PICK_DOWN] },
-    Group { keys: "Enter", label: "run", bindings: &[SEND] },
-    Group { keys: "Tab", label: "complete", bindings: &[PICK_TAB] },
-    Group { keys: "Esc", label: "close", bindings: &[PICK_ESC] },
+    Group { keys: "\u{2191}\u{2193}", label: "select", bindings: &[PICK_UP, PICK_DOWN], show_hint: true },
+    Group { keys: "Enter", label: "run", bindings: &[SEND], show_hint: true },
+    Group { keys: "Tab", label: "complete", bindings: &[PICK_TAB], show_hint: true },
+    Group { keys: "Esc", label: "close", bindings: &[PICK_ESC], show_hint: true },
 ];
 
-const LOGIN_GROUPS: &[Group] = &[Group { keys: "Esc", label: "cancel login", bindings: &[CANCEL] }];
+const LOGIN_GROUPS: &[Group] = &[Group { keys: "Esc", label: "cancel login", bindings: &[CANCEL], show_hint: true }];
 
 const SECRET_GROUPS: &[Group] = &[
-    Group { keys: "Enter", label: "save the key", bindings: &[SEND] },
-    Group { keys: "Esc", label: "cancel login", bindings: &[CANCEL] },
+    Group { keys: "Enter", label: "save the key", bindings: &[SEND], show_hint: true },
+    Group { keys: "Esc", label: "cancel login", bindings: &[CANCEL], show_hint: true },
 ];
 
 const HINTS: &[(Context, Hints)] = &[
@@ -163,6 +169,7 @@ pub fn hints(context: Context) -> String {
     let groups = hints
         .groups
         .iter()
+        .filter(|group| group.show_hint)
         .map(|group| format!("{}: {}", group.keys, group.label))
         .collect::<Vec<_>>()
         .join(" | ");
@@ -279,12 +286,7 @@ mod tests {
         assert_eq!(hints(Context::Picker), "\u{2191}\u{2193}: select | Enter: run | Tab: complete | Esc: close");
         for group in PICKER_GROUPS {
             for binding in group.bindings {
-                assert_eq!(
-                    effect_for(binding.event(), Context::Picker),
-                    Some(binding.effect),
-                    "{}",
-                    group.keys
-                );
+                assert_eq!(effect_for(binding.event(), Context::Picker), Some(binding.effect), "{}", group.keys);
             }
         }
     }
