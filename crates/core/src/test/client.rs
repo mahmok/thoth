@@ -15,8 +15,6 @@ use crate::sync::MutexExt as _;
 pub enum Step {
     /// Answer with `text`.
     Reply(String),
-    /// Call one Tool.
-    ToolCall { id: String, name: String, arguments: String },
     /// Call several Tools in one reply.
     ToolCalls(Vec<(String, String, String)>),
     /// Answer with a whole completion: reasoning, usage, a cut-off, and so on.
@@ -44,7 +42,7 @@ where
 #[inline]
 /// A reply that calls `name` once, with `arguments` as its raw JSON.
 pub fn call(id: &str, name: &str, arguments: &str) -> Step {
-    Step::ToolCall { id: id.into(), name: name.into(), arguments: arguments.into() }
+    Step::ToolCalls(vec![(id.into(), name.into(), arguments.into())])
 }
 
 #[must_use]
@@ -104,14 +102,7 @@ where
 #[inline]
 /// A completion that calls `name` once, for when a test needs the whole value.
 pub fn call_answer(id: &str, name: &str, arguments: &str) -> StreamedCompletion {
-    StreamedCompletion {
-        tool_calls: vec![ToolCall {
-            id: id.into(),
-            kind: ToolCallKind::Function,
-            function: FunctionCall { arguments: arguments.into(), name: name.into() },
-        }],
-        ..Default::default()
-    }
+    calls_answer(&[(id, name, arguments)])
 }
 
 #[must_use]
@@ -197,16 +188,6 @@ impl LlmClient for Client {
                         on_delta(Delta::Text(&text));
                     }
                     return Ok(StreamedCompletion { text, ..Default::default() });
-                },
-                Step::ToolCall { id, name, arguments } => {
-                    return Ok(StreamedCompletion {
-                        tool_calls: vec![ToolCall {
-                            id,
-                            kind: ToolCallKind::Function,
-                            function: FunctionCall { arguments, name },
-                        }],
-                        ..Default::default()
-                    });
                 },
                 Step::ToolCalls(calls) => {
                     return Ok(StreamedCompletion {

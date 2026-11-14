@@ -16,7 +16,7 @@ use crate::harness::{Event as HarnessEvent, Harness as CoreHarness};
 use crate::llm::provider::Provider;
 use crate::models::refresh::Session as RefreshSession;
 use crate::models::store::InMemory as InMemoryModelsStore;
-use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
+use crate::models::testing::Worker as ScriptedRefreshWorker;
 use crate::persona::Repository as PersonaRepository;
 use crate::services::Services;
 use crate::session::Session;
@@ -25,7 +25,7 @@ use crate::session::view::View;
 use crate::transcript::{Content, Speaker};
 use crate::workspace::Workspace;
 
-/// The scripted collaborators a Harness is wired to.
+/// The scripted collaborators a TestHarness is wired to.
 #[derive(Debug)]
 #[expect(clippy::partial_pub_fields, reason = "the private fields keep the invariants of the type")]
 pub struct Scripted {
@@ -62,7 +62,7 @@ impl Scripted {
     }
 
     #[inline]
-    /// The services of a Harness, wired to the fixture.
+    /// The services of a TestHarness, wired to the fixture.
     pub fn services(&self, models: Arc<InMemoryModelsStore>) -> Services {
         Services {
             personas: PersonaRepository::new(),
@@ -84,7 +84,7 @@ impl Scripted {
 
 /// A session wired to scripted collaborators, driven by calling it the way a client would.
 #[derive(Debug)]
-pub struct Harness {
+pub struct TestHarness {
     pub agent: Rc<ScriptedAgent>,
     pub events: Vec<SessionEvent>,
     pub files: Arc<FileReferences>,
@@ -97,7 +97,7 @@ pub struct Harness {
     pub worker: Rc<ScriptedLoginWorker>,
 }
 
-impl Harness {
+impl TestHarness {
     fn build(agent: Rc<ScriptedAgent>, logged_in: &[Provider], models: Arc<InMemoryModelsStore>) -> Self {
         let scripted = Scripted::new(agent, logged_in);
         let mut harness = CoreHarness::new(scripted.services(models));
@@ -211,7 +211,7 @@ impl Harness {
     }
 }
 
-impl Default for Harness {
+impl Default for TestHarness {
     #[inline]
     fn default() -> Self {
         Self::new()

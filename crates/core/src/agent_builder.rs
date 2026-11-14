@@ -23,7 +23,7 @@ use crate::sync::MutexExt as _;
 use crate::workspace::Workspace;
 
 #[cfg(any(test, feature = "testing"))]
-use crate::test::client::Client as FakeClient;
+use crate::test::client::Client as ScriptedClient;
 
 #[derive(Debug)]
 /// Builds Agents from Personas.
@@ -32,7 +32,7 @@ pub struct AgentBuilder {
     delegation: Delegation,
     /// Replies every built Agent takes from, in tests in place of a provider.
     #[cfg(any(test, feature = "testing"))]
-    fake_client: Option<FakeClient>,
+    scripted_client: Option<ScriptedClient>,
     /// Whether each tool selection only reads. The answer depends on nothing else, so it is
     /// worked out once per selection.
     read_only: Mutex<HashMap<Selection, bool>>,
@@ -129,7 +129,7 @@ impl AgentBuilder {
             delegation: Delegation::default(),
             read_only: Mutex::default(),
             #[cfg(any(test, feature = "testing"))]
-            fake_client: None,
+            scripted_client: None,
         }
     }
 
@@ -150,15 +150,15 @@ impl AgentBuilder {
     #[cfg(any(test, feature = "testing"))]
     #[inline]
     #[must_use]
-    pub fn with_fake_client(mut self, fake: FakeClient) -> Self {
-        self.fake_client = Some(fake);
+    pub fn with_scripted_client(mut self, fake: ScriptedClient) -> Self {
+        self.scripted_client = Some(fake);
         self
     }
 
     #[cfg(any(test, feature = "testing"))]
     fn with_test_client(&self, agent: Agent) -> Agent {
-        match self.fake_client.as_ref() {
-            Some(fake) => agent.with_client(AnyClient::Fake(fake.clone())),
+        match self.scripted_client.as_ref() {
+            Some(fake) => agent.with_client(AnyClient::Scripted(fake.clone())),
             None => agent,
         }
     }
@@ -187,7 +187,8 @@ mod tests {
     use crate::llm::thinking::Thinking;
     use crate::models::store::InMemory as InMemoryModelsStore;
     use crate::persona::Repository as PersonaRepository;
-    use crate::test::client::{Client as FakeClient, reply};
+    use crate::test::client::reply;
+    use crate::test::fixtures::client;
     use crate::test::temp_tree::TempTree;
 
     fn builder(tree: &TempTree) -> AgentBuilder {
@@ -251,12 +252,12 @@ mod tests {
     #[tokio::test]
     async fn a_persona_system_prompt_is_sent_with_the_conversation() {
         let tree = TempTree::new("builder-prompt");
-        let fake = FakeClient::new(vec![reply("ok")]);
+        let fake = client(vec![reply("ok")]);
         let agent = builder(&tree)
             .build(
                 &Persona::new("a", "A", "").with_system_prompt("be brief").with_model(Model::reference("ollama", "m")),
             )
-            .with_client(AnyClient::Fake(fake.clone()));
+            .with_client(AnyClient::Scripted(fake.clone()));
         agent.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(fake.requests()[0].0, 2, "the system prompt, then the prompt");
     }
@@ -308,8 +309,8 @@ mod tests {
     #[tokio::test]
     async fn a_test_client_serves_every_agent_the_builder_makes() {
         let tree = TempTree::new("builder-fake");
-        let fake = FakeClient::new(vec![reply("hi")]);
-        let builder = Arc::new(builder(&tree).with_fake_client(fake.clone()));
+        let fake = client(vec![reply("hi")]);
+        let builder = Arc::new(builder(&tree).with_scripted_client(fake.clone()));
         let persona = Persona::new("a", "A", "").with_model(Model::reference("ollama", "m"));
         let root = builder.build_root(&persona, registry());
         root.respond("hi".into(), |_| {}).await.unwrap();

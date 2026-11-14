@@ -117,7 +117,7 @@ mod tests {
     use super::*;
     use crate::agent::Event as AgentEvent;
     use crate::llm::thinking::Thinking;
-    use crate::test::client::{Script, error, reply};
+    use crate::test::client::{Script, failure, reply};
     use crate::test::fixtures::agent;
     use tokio::time;
 
@@ -128,8 +128,7 @@ mod tests {
 
     /// Waits for the turn to end, returning every reply it produced.
     async fn run_turn(fail: bool) -> Vec<Reply> {
-        let step =
-            if fail { error(crate::llm::client::error::Failure::Api("fake failure".into())) } else { reply("hello") };
+        let step = if fail { failure() } else { reply("hello") };
         let link = controller(vec![step]);
         link.start("hi".into());
 
@@ -177,7 +176,7 @@ mod tests {
     #[test]
     fn settings_are_the_agents_and_changes_reach_it() {
         let link = controller(Vec::new());
-        assert_eq!(link.settings().model.map(|m| m.model.id), Some("test-model".to_owned()));
+        assert_eq!(link.settings().model, Some(crate::test::fixtures::test_model()));
         link.apply(AgentChange::SetThinking(Thinking::High));
         assert_eq!(link.settings().thinking, Thinking::High);
     }

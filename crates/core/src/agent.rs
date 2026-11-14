@@ -816,7 +816,6 @@ async fn until<T>(cancelled: &CancellationToken, work: impl Future<Output = Resu
 
 #[cfg(test)]
 mod tests {
-    use serde::Deserialize;
     use serde_json::{Value, json};
     use std::path::PathBuf;
 
@@ -833,50 +832,12 @@ mod tests {
     use crate::test::client::{
         Client, Script, answer, call, call_answer, calls, calls_answer, completion, error, failure, reply,
     };
-    use crate::test::fixtures::{agent_with as fixture_agent, test_model};
+    use crate::test::fixtures::{Echo, EchoArgs, agent_with as fixture_agent, echo_agent, test_model};
     use core::future;
     use core::sync::atomic::AtomicBool;
     use core::sync::atomic::Ordering;
     use core::time::Duration;
     use tokio::time;
-
-    #[derive(Debug)]
-    struct Echo;
-
-    #[derive(Deserialize)]
-    struct EchoArgs {
-        text: String,
-    }
-
-    impl Tool for Echo {
-        type Args = EchoArgs;
-
-        fn describe(&self) -> Description {
-            Description { description: "Echo the text back", name: "echo" }
-        }
-
-        fn parameters(&self) -> Value {
-            json!({ "type": "object", "properties": { "text": { "type": "string" } } })
-        }
-
-        fn run(&self, args: EchoArgs, _cx: &ToolContext) -> impl Future<Output = ToolResult> {
-            future::ready(ToolResult::ok(format!("echo: {}", args.text)))
-        }
-
-        fn summary(&self, args: &EchoArgs) -> String {
-            args.text.clone()
-        }
-
-        #[inline]
-        fn traits(&self) -> ToolTraits {
-            ToolTraits::default()
-        }
-
-        #[inline]
-        fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
-            self.traits()
-        }
-    }
 
     /// Like `Echo`, but it changes nothing, so calls to it may run together.
     #[derive(Debug)]
@@ -1067,9 +1028,7 @@ mod tests {
     }
 
     pub(super) fn build(script: Script) -> (Agent, Client) {
-        let mut tools = ToolSet::new();
-        tools.register(Echo).unwrap();
-        fixture_agent(script, tools)
+        echo_agent(script)
     }
 
     fn agent(script: Script) -> Agent {

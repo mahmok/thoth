@@ -182,13 +182,13 @@ fn instruction(focus: Option<&str>, sub_agents: &[SubAgentInfo]) -> String {
 mod tests {
     use super::*;
     use crate::agent::context::{Budget as ContextBudget, Compaction, Context as AgentContext};
-    use crate::agent::tests::build;
     use crate::test::client::{Client, Script, answer, calls, completion, failure, reply};
+    use crate::test::fixtures::echo_agent;
     use std::path::Path;
 
     /// Compacts once the Conversation is over `budget` tokens, keeping only the latest Turn.
     fn agent(budget: usize, script: Script) -> (Agent, Client) {
-        let (agent, fake) = build(script);
+        let (agent, fake) = echo_agent(script);
         let context_budget =
             ContextBudget { elision: None, compaction: Some(Compaction { budget, limit_share: 1.0, keep_recent: 0 }) };
         (agent.with_context(&AgentContext::new(Path::new("")).with_budget(context_budget)), fake)
@@ -241,7 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn asked_for_it_keeps_only_the_latest_turn_however_short_the_conversation() {
-        let (plain, _) = build(vec![reply("a"), reply("b"), reply("c"), reply("gist")]);
+        let (plain, _) = echo_agent(vec![reply("a"), reply("b"), reply("c"), reply("gist")]);
         let agent = plain.with_context(&AgentContext::new(Path::new("")));
         for prompt in ["1", "2", "3"] {
             agent.respond(prompt.into(), |_| {}).await.unwrap();
@@ -330,7 +330,7 @@ mod tests {
     #[tokio::test]
     async fn the_tool_definitions_count_toward_the_budget() {
         // A budget the conversation alone stays under, but not with the tools it is sent with.
-        let tools = build(vec![]).0.tools.estimated_tokens();
+        let tools = echo_agent(vec![]).0.tools.estimated_tokens();
         assert!(tools > 0);
         let (agent, fake) = agent(tools, vec![reply("a"), reply("b"), reply("gist"), reply("c")]);
         agent.respond("1".into(), |_| {}).await.unwrap();
@@ -353,7 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn turned_off_it_never_runs() {
-        let (plain, fake) = build(vec![reply("a"), reply("b"), reply("c")]);
+        let (plain, fake) = echo_agent(vec![reply("a"), reply("b"), reply("c")]);
         let budget = ContextBudget { elision: None, compaction: None };
         let agent = plain.with_context(&AgentContext::new(Path::new("")).with_budget(budget));
         for prompt in ["1", "2", "3"] {

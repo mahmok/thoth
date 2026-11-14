@@ -1,10 +1,16 @@
 use alloc::sync::Arc;
+use core::future;
 use std::path::Path;
+
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 use crate::agent::context::Context as AgentContext;
 use crate::agent::delegation::Delegation;
 use crate::agent::skills::SkillSet;
-use crate::agent::tools::tool::Outcome as ToolResult;
+use crate::agent::tools::tool::{
+    Context as ToolContext, Description as ToolDescription, Outcome as ToolResult, Tool, Traits as ToolTraits,
+};
 use crate::agent::tools::tool_set::ToolSet;
 use crate::agent::{Agent, Event as AgentEvent};
 use crate::agent_builder::AgentBuilder;
@@ -86,15 +92,26 @@ pub fn models() -> Arc<InMemoryModelsStore> {
     ])
 }
 
+#[must_use]
+#[inline]
+/// A scripted client that follows `script`.
+pub fn client(script: Script) -> Client {
+    Client::new(script)
+}
+
+fn agent_with_model(script: Script, model: ModelSpec, tools: ToolSet) -> (Agent, Client) {
+    let client = client(script);
+    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
+        .with_model(model)
+        .with_client(AnyClient::Scripted(client.clone()))
+        .with_tools(tools);
+    (agent, client)
+}
+
 /// An Agent whose model replies from `script`, offering `tools`.
 #[must_use]
 pub fn agent_with(script: Script, tools: ToolSet) -> (Agent, Client) {
-    let client = Client::new(script);
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-        .with_model(test_model())
-        .with_client(AnyClient::Fake(client.clone()))
-        .with_tools(tools);
-    (agent, client)
+    agent_with_model(script, test_model(), tools)
 }
 
 /// An Agent whose model replies from `script`, with no Tools.
@@ -106,11 +123,50 @@ pub fn agent(script: Script) -> (Agent, Client) {
 /// A Sub-agent's Agent, whose model replies from `script`.
 #[must_use]
 pub fn sub_agent(script: Script) -> (Agent, Client) {
-    let client = Client::new(script);
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-        .with_model(model("ollama", "sub"))
-        .with_client(AnyClient::Fake(client.clone()));
-    (agent, client)
+    agent_with_model(script, model("ollama", "sub"), ToolSet::new())
+}
+
+#[derive(Debug)]
+/// A Tool that echoes its `text` argument back with an `echo: ` prefix.
+pub struct Echo;
+
+#[derive(Debug, Deserialize)]
+/// Arguments of [`Echo`].
+pub struct EchoArgs {
+    pub text: String,
+}
+
+impl Tool for Echo {
+    type Args = EchoArgs;
+
+    fn describe(&self) -> ToolDescription {
+        ToolDescription { description: "Echo the text back", name: "echo" }
+    }
+
+    fn parameters(&self) -> Value {
+        json!({ "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] })
+    }
+
+    fn run(&self, args: EchoArgs, _cx: &ToolContext) -> impl future::Future<Output = ToolResult> + Send {
+        future::ready(ToolResult::ok(format!("echo: {}", args.text)))
+    }
+
+    fn summary(&self, args: &EchoArgs) -> String {
+        args.text.clone()
+    }
+
+    #[inline]
+    fn traits(&self) -> ToolTraits {
+        ToolTraits::default()
+    }
+}
+
+/// An Agent offering [`Echo`], whose model replies from `script`.
+#[must_use]
+pub fn echo_agent(script: Script) -> (Agent, Client) {
+    let mut tools = ToolSet::new();
+    tools.register(Echo).unwrap();
+    agent_with(script, tools)
 }
 
 /// A Root Agent that owns the temporary workspace its Tools write to.
@@ -178,7 +234,7 @@ pub fn root(script: Script, limits: Delegation) -> (Root, Client) {
             SkillSet::default(),
         )
         .with_delegation(limits)
-        .with_fake_client(client.clone()),
+        .with_scripted_client(client.clone()),
     );
     let personas = personas();
     let own = personas.get("root").unwrap().clone();
