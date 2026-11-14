@@ -191,7 +191,6 @@ pub(super) trait ErasedTool: Debug + Send + Sync {
     #[cfg(test)]
     fn accepts(&self, value: &Value) -> bool;
 
-    fn tool_name(&self) -> &'static str;
     fn traits_for_call(&self, raw_arguments: &str) -> Traits;
 }
 
@@ -226,10 +225,6 @@ impl<T: Tool> ErasedTool for T {
             description: described.description.to_owned(),
             parameters: self.parameters(),
         }
-    }
-
-    fn tool_name(&self) -> &'static str {
-        self.describe().name
     }
 
     fn is_read_only(&self) -> bool {

@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits};
+use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits};
 use crate::agent::sub_agents::SubAgents;
 use crate::agent_builder::AgentBuilder;
 
@@ -72,9 +72,6 @@ impl Tool for Messenger {
         format!("{}: {}", args.agent_id, args.text)
     }
 
-    #[inline]
-
-
     /// Read-only when the Persona of the sub-agent it names only reads. An unknown id is not, so
     /// it is refused in the ordinary way.
     #[inline]
@@ -93,7 +90,7 @@ mod tests {
     use crate::agent::tools::delegation_fixtures::{delegate_calls, reply, result_of, root, tool_calls, turn};
 
     fn names(agent: &Agent) -> Vec<String> {
-        agent.tools().definitions().iter().map(|spec| spec.name.clone()).collect()
+        agent.tools().definitions().map(|spec| spec.name.clone()).collect()
     }
 
     #[tokio::test]

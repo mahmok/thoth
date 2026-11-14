@@ -1,6 +1,7 @@
 use alloc::sync::Arc;
 use core::fmt::Write as _;
 use core::time::Duration;
+#[cfg(unix)]
 use std::process;
 use std::process::Stdio;
 use std::sync::Mutex;
@@ -12,7 +13,7 @@ use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
 
-use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool};
+use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool};
 use crate::sync::MutexExt as _;
 use crate::workspace::Workspace;
 
@@ -53,9 +54,12 @@ impl Tool for Bash {
     type Args = BashArgs;
 
     fn describe(&self) -> Description {
-        Description { description: "Run a bash command in the working directory and return its exit code, stdout and stderr. \
+        Description {
+            description: "Run a bash command in the working directory and return its exit code, stdout and stderr. \
          Commands run non-interactively; long output keeps its start and its end, and slow commands are killed after the timeout \
-         (the output so far is still returned). Do not use it to write files: use write_file and edit_file.", name: "bash" }
+         (the output so far is still returned). Do not use it to write files: use write_file and edit_file.",
+            name: "bash",
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -80,7 +84,6 @@ impl Tool for Bash {
     fn summary(&self, args: &BashArgs) -> String {
         args.command.clone()
     }
-
 }
 
 /// The start and the end of what a stream produced, however long it was.
@@ -246,8 +249,10 @@ mod tests {
     use super::*;
     use crate::agent::tools::testing::run;
     use crate::test::temp_tree::TempTree;
+    #[cfg(unix)]
     use std::process;
     use std::time::Instant;
+    #[cfg(unix)]
     use tokio::time;
 
     fn tool(tree: &TempTree) -> Bash {

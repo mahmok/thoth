@@ -25,7 +25,7 @@ use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::client::any::Client as AnyClient;
 use crate::llm::client::chat::{ToolCall, Usage};
 use crate::llm::client::error::Failure as ClientError;
-use crate::llm::client::{CreateCompletionRequest, Delta, Llm as _, StreamedCompletion, ToolChoice};
+use crate::llm::client::{CreateCompletionRequest, Delta, Llm as _, StreamedCompletion, ToolChoice, ToolSpec};
 use crate::llm::provider::ModelSpec;
 use crate::llm::thinking::Thinking;
 use crate::sync::{MutexExt as _, RwLockExt as _};
@@ -628,11 +628,12 @@ impl Agent {
         let mut recovered = false;
         loop {
             let client = self.client()?;
+            let definitions: Vec<ToolSpec> = self.tools.definitions().cloned().collect();
             let result = client
                 .create_completion_stream(
                     CreateCompletionRequest {
                         messages: turn.messages(),
-                        tools: self.tools.definitions(),
+                        tools: &definitions,
                         thinking: self.thinking(),
                         tool_choice,
                     },
@@ -820,7 +821,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::agent::tools::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits};
+    use crate::agent::tools::tool::{
+        Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits,
+    };
     use crate::agent::tools::tool_set::ToolSet;
     use crate::llm::client::StreamedCompletion;
     use crate::llm::client::ToolChoice;

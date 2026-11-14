@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits};
+use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits};
 use crate::agent::sub_agents::SubAgents;
 use crate::agent_builder::AgentBuilder;
 use crate::persona::{Persona, Repository as PersonaRepository};
@@ -108,9 +108,6 @@ impl Tool for Delegate {
         args.persona.as_ref().map_or_else(|| args.task.clone(), |persona| format!("{persona}: {}", args.task))
     }
 
-    #[inline]
-
-
     /// Read-only when the Persona that would play the sub-agent only reads.
     #[inline]
     fn traits_for(&self, args: &Args) -> ToolTraits {
@@ -191,13 +188,13 @@ mod tests {
         );
         turn(&root).await;
         let sub = root.sub_agents().get("tester-1").unwrap();
-        assert!(!sub.agent.tools().definitions().iter().any(|spec| spec.name == "delegate"));
+        assert!(!sub.agent.tools().definitions().any(|spec| spec.name == "delegate"));
     }
 
     #[test]
     fn the_description_says_to_follow_up_with_message_instead_of_delegating_again() {
         let (root, _) = root(vec![], Delegation::default());
-        let delegate = root.tools().definitions().iter().find(|spec| spec.name == "delegate").unwrap().clone();
+        let delegate = root.tools().definitions().find(|spec| spec.name == "delegate").unwrap().clone();
         assert!(delegate.description.contains("message"), "{}", delegate.description);
         assert!(delegate.description.contains("instead of delegating again"));
     }
@@ -205,7 +202,7 @@ mod tests {
     #[test]
     fn the_schema_lists_every_persona_key_and_what_it_is_for() {
         let (root, _) = root(vec![], Delegation::default());
-        let spec = root.tools().definitions().iter().find(|spec| spec.name == "delegate").unwrap().clone();
+        let spec = root.tools().definitions().find(|spec| spec.name == "delegate").unwrap().clone();
         assert_eq!(spec.parameters["properties"]["persona"]["enum"], json!(["reader", "root", "tester"]));
         let described = spec.parameters["properties"]["persona"]["description"].as_str().unwrap();
         assert!(described.contains("`tester` (writes tests)"), "{described}");

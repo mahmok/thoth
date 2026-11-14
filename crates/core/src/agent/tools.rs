@@ -75,10 +75,19 @@ mod tests {
     #[test]
     fn builtin_offers_the_file_tools() {
         let tree = TempTree::new("builtin");
-        let names: Vec<String> = builtin(tree.workspace()).definitions().iter().map(|d| d.name.clone()).collect();
+        let names: Vec<String> = builtin(tree.workspace()).definitions().map(|d| d.name.clone()).collect();
         assert_eq!(
             names,
-            ["read_file", "list_directory", "search_files", "find_files", "edit_file", "write_file", "bash", "invoke_skill"]
+            [
+                "read_file",
+                "list_directory",
+                "search_files",
+                "find_files",
+                "edit_file",
+                "write_file",
+                "bash",
+                "invoke_skill"
+            ]
         );
     }
 

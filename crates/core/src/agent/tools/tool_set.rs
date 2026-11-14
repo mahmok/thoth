@@ -3,7 +3,7 @@ use core::error;
 
 use crate::llm::client::ToolSpec;
 
-use super::tool::{Context as ToolContext, Description, ErasedTool, Outcome as ToolResult, Tool, Traits as ToolTraits};
+use super::tool::{Context as ToolContext, ErasedTool, Outcome as ToolResult, Tool, Traits as ToolTraits};
 
 #[derive(Debug, PartialEq, Eq)]
 /// Returned when a Tool name is registered twice.
@@ -18,19 +18,26 @@ impl fmt::Display for DuplicateTool {
 
 impl error::Error for DuplicateTool {}
 
+#[derive(Debug)]
+/// One registered Tool: what the model is told about it, and the Tool itself.
+struct Entry {
+    spec: ToolSpec,
+    tool: Box<dyn ErasedTool>,
+}
+
 #[derive(Default, Debug)]
 /// The Tools an Agent can call.
 pub struct ToolSet {
-    specs: Vec<ToolSpec>,
     //TODO: Maybe convert to hashmap or tree.
-    tools: Vec<Box<dyn ErasedTool>>,
+    entries: Vec<Entry>,
 }
 
 impl ToolSet {
     #[must_use]
     #[inline]
-    pub fn definitions(&self) -> &[ToolSpec] {
-        &self.specs
+    /// The definitions the model is sent, in registration order.
+    pub fn definitions(&self) -> impl ExactSizeIterator<Item = &ToolSpec> + '_ {
+        self.entries.iter().map(|entry| &entry.spec)
     }
 
     #[must_use]
@@ -48,11 +55,11 @@ impl ToolSet {
     /// The rough tokens the definitions cost in every request. Recomputed rather than cached, so
     /// the estimate cannot drift from the definitions it describes.
     pub fn estimated_tokens(&self) -> usize {
-        self.specs.iter().map(spec_tokens).sum()
+        self.entries.iter().map(|entry| spec_tokens(&entry.spec)).sum()
     }
 
     fn find(&self, name: &str) -> Option<&dyn ErasedTool> {
-        self.tools.iter().map(AsRef::as_ref).find(|t| t.tool_name() == name)
+        self.entries.iter().find(|entry| entry.spec.name == name).map(|entry| entry.tool.as_ref())
     }
 
     #[must_use]
@@ -71,13 +78,11 @@ impl ToolSet {
     where
         T: Tool,
     {
-        let name = tool.describe().name;
-        if self.find(name).is_some() {
-            return Err(DuplicateTool(name.to_owned()));
-        }
         let spec = tool.spec();
-        self.specs.push(spec);
-        self.tools.push(Box::new(tool));
+        if self.find(&spec.name).is_some() {
+            return Err(DuplicateTool(spec.name));
+        }
+        self.entries.push(Entry { spec, tool: Box::new(tool) });
         Ok(())
     }
 
@@ -87,8 +92,7 @@ impl ToolSet {
     where
         Callback: Fn(&str) -> bool,
     {
-        self.tools.retain(|tool| keep(tool.tool_name()));
-        self.specs.retain(|spec| keep(&spec.name));
+        self.entries.retain(|entry| keep(&entry.spec.name));
     }
 
     #[inline]
@@ -133,6 +137,7 @@ fn spec_tokens(spec: &ToolSpec) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::tools::tool::Description;
     use core::future;
     use serde::Deserialize;
     use serde_json::{Value, json};
@@ -163,9 +168,6 @@ mod tests {
         fn summary(&self, args: &EchoArgs) -> String {
             args.text.clone()
         }
-
-        #[inline]
-    
 
         #[inline]
         fn traits_for(&self, _args: &Self::Args) -> ToolTraits {
@@ -254,7 +256,7 @@ mod tests {
         let mut set = set();
         let before = set.estimated_tokens();
         set.retain(|name| name != "echo");
-        assert_eq!(set.definitions(), []);
+        assert_eq!(set.definitions().count(), 0);
         assert_eq!(set.estimated_tokens(), 0);
         assert!(before > 0);
     }
@@ -268,7 +270,7 @@ mod tests {
     #[test]
     fn definitions_describe_every_tool() {
         let set = set();
-        let defs = set.definitions();
+        let defs: Vec<&ToolSpec> = set.definitions().collect();
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].name, "echo");
         assert_eq!(defs[0].description, "Echo the text back");
