@@ -8,14 +8,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Credential {
-    ApiKey {
-        key: String,
-    },
-    Oauth {
-        refresh: String,
-        access: String,
-        expires: u64,
-    },
+    ApiKey { key: String },
+    Oauth { refresh: String, access: String, expires: u64 },
 }
 
 impl Debug for Credential {
