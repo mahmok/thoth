@@ -25,7 +25,7 @@ use crate::session::view::View;
 use crate::transcript::{Content, Speaker};
 use crate::workspace::Workspace;
 
-/// The scripted collaborators a TestHarness is wired to.
+/// The scripted collaborators a `TestHarness` is wired to.
 #[derive(Debug)]
 #[expect(clippy::partial_pub_fields, reason = "the private fields keep the invariants of the type")]
 pub struct Scripted {
@@ -62,7 +62,7 @@ impl Scripted {
     }
 
     #[inline]
-    /// The services of a TestHarness, wired to the fixture.
+    /// The services of a `TestHarness`, wired to the fixture.
     pub fn services(&self, models: Arc<InMemoryModelsStore>) -> Services {
         Services {
             personas: PersonaRepository::new(),

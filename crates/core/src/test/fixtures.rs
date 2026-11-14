@@ -162,6 +162,10 @@ impl Tool for Echo {
 }
 
 /// An Agent offering [`Echo`], whose model replies from `script`.
+///
+/// # Panics
+///
+/// Panics if `Echo` cannot be registered.
 #[must_use]
 pub fn echo_agent(script: Script) -> (Agent, Client) {
     let mut tools = ToolSet::new();
