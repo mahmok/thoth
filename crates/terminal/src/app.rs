@@ -11,7 +11,7 @@ use super::client::Client;
 use super::clipboard;
 use super::command::{self, Ran};
 use super::header;
-use super::keymap::{self, Action};
+use super::keymap::{self, Context, Effect};
 use super::modes::Modes;
 use super::popup;
 use super::prompt::{Prompt, Submission};
@@ -19,7 +19,7 @@ use crate::picker::{Catalog, Outcome, PickerHost, PickerKey, PromptText};
 use crate::stats;
 use crate::theme::{self, Status, Theme};
 use crate::units::to_u16;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
 use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::Paragraph;
 use ratatui::{DefaultTerminal, Frame};
@@ -122,17 +122,26 @@ impl TerminalApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
-        if self.pickers.is_open()
-            && let Some(picker_key) = picker_key(key.code)
-        {
-            let _outcome = self.press(picker_key);
-            return;
+        match keymap::effect_for(key, self.context()) {
+            Some(effect) => self.perform(effect),
+            None => {
+                self.prompt.handle_key(key);
+                self.prompt_changed();
+            },
         }
-        if let Some(action) = keymap::action_for(key) {
-            self.perform(action);
+    }
+
+    /// Where the user is: which context answers a key, and which hints are shown.
+    fn context(&self) -> Context {
+        let login = self.harness.login_view();
+        if self.pickers.is_open() {
+            Context::Picker
+        } else if login.awaiting_secret {
+            Context::Secret
+        } else if login.active {
+            Context::Login
         } else {
-            self.prompt.handle_key(key);
-            self.prompt_changed();
+            Context::Always
         }
     }
 
@@ -186,21 +195,26 @@ impl TerminalApp {
         }
     }
 
-    /// Does what a key action asks.
-    fn perform(&mut self, action: Action) {
-        match action {
-            Action::Quit => self.quit = true,
-            Action::Cancel => self.harness.cancel(),
-            Action::Submit => {
+    /// Does what a key effect asks. Every key goes through here, so its outcome has one rule:
+    /// only Submit has somewhere to fall back to, and a picker that refuses a key it was sent
+    /// has simply not taken it.
+    fn perform(&mut self, effect: Effect) {
+        match effect {
+            Effect::Quit => self.quit = true,
+            Effect::Cancel => self.harness.cancel(),
+            Effect::Submit => {
                 if self.press(PickerKey::Enter) == Outcome::Unclaimed {
                     self.submit();
                 }
             },
-            Action::ScrollUp if self.prompt.text().is_empty() => self.recall_last_input(),
-            Action::ScrollUp => self.chat.scroll_up(1),
-            Action::ScrollDown => self.chat.scroll_down(1),
-            Action::PageUp => self.chat.scroll_up(self.chat.page_size()),
-            Action::PageDown => self.chat.scroll_down(self.chat.page_size()),
+            Effect::Picker(key) => {
+                let _taken = self.press(key);
+            },
+            Effect::ScrollUp if self.prompt.text().is_empty() => self.recall_last_input(),
+            Effect::ScrollUp => self.chat.scroll_up(1),
+            Effect::ScrollDown => self.chat.scroll_down(1),
+            Effect::PageUp => self.chat.scroll_up(self.chat.page_size()),
+            Effect::PageDown => self.chat.scroll_down(self.chat.page_size()),
         }
     }
 
@@ -356,17 +370,11 @@ impl TerminalApp {
     }
 
     fn title(&self) -> String {
-        let login = self.harness.login_view();
-        if self.pickers.is_open() {
-            keymap::PICKER_HINTS.to_owned()
-        } else if login.awaiting_secret {
-            keymap::SECRET_HINTS.to_owned()
-        } else if login.active {
-            keymap::LOGIN_HINTS.to_owned()
-        } else if self.harness.view().busy {
+        let context = self.context();
+        if context == Context::Always && self.harness.view().busy {
             "Waiting for response...".to_owned()
         } else {
-            keymap::hints()
+            keymap::hints(context)
         }
     }
 }
@@ -401,46 +409,13 @@ const fn is_said(item: &Item) -> bool {
     }
 }
 
-/// The picker key for a key code, if the picker uses it.
-const fn picker_key(code: KeyCode) -> Option<PickerKey> {
-    match code {
-        KeyCode::Up => Some(PickerKey::Up),
-        KeyCode::Down => Some(PickerKey::Down),
-        KeyCode::Tab => Some(PickerKey::Tab),
-        KeyCode::Esc => Some(PickerKey::Esc),
-        KeyCode::Backspace
-        | KeyCode::Enter
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::Char(_)
-        | KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use alloc::rc::Rc;
 
     use super::*;
     use alloc::collections::BTreeSet;
-    use crossterm::event::KeyModifiers;
+    use crossterm::event::{KeyCode, KeyModifiers};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
