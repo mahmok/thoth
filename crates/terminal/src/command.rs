@@ -234,7 +234,7 @@ fn models(session: &Client) -> Vec<Pick> {
 
 fn personas(client: &Client) -> Vec<Pick> {
     client
-        .list_personas()
+        .personas()
         .into_iter()
         .map(|persona| {
             let choice = Choice::new(persona.key.clone(), persona.name, persona.description);

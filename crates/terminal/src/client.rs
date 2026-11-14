@@ -1,11 +1,17 @@
-use core::ops::{Deref, DerefMut};
-
-use thoth_core::harness::Harness;
+use thoth_core::builtin::files::Suggestions;
+use thoth_core::harness::{Event, Harness};
+use thoth_core::llm::provider::{ModelSpec, Provider};
+use thoth_core::persona::Info as PersonaInfo;
+use thoth_core::session::LoginState;
 use thoth_core::session::Session;
-use thoth_core::session::view::View;
+use thoth_core::session::view::{Login as LoginView, View};
 
 /// A Harness and the one session this terminal is showing. Which session is viewed is the
 /// terminal's business; the Harness only knows its sessions by id.
+///
+/// The façade exposes what the app and the command layer call, and nothing else: in
+/// particular it offers no way to close a session except [`close`](Self::close), which moves
+/// the view first, so "the viewed session exists" cannot be bypassed.
 pub struct Client {
     harness: Harness,
     session: u64,
@@ -25,11 +31,48 @@ impl Client {
         if ids.len() < 2 || !ids.contains(&session) {
             return false;
         }
-        let _closed = self.harness.close_session(session);
+        if !self.harness.close_session(session) {
+            return false;
+        }
         if self.session == session {
             self.session = ids.into_iter().find(|id| *id != session).unwrap_or(self.session);
         }
         true
+    }
+
+    /// Starts a Session playing `persona`, without moving the view to it.
+    pub fn create_session(&mut self, persona: &str) -> Option<u64> {
+        self.harness.create_session(persona)
+    }
+
+    /// The login as it stands, for the header, the prompt and its hints.
+    pub const fn login_view(&self) -> &LoginView {
+        self.harness.login_view()
+    }
+
+    /// The providers that can be logged in to.
+    pub fn login_providers(&self) -> Vec<Provider> {
+        self.harness.login_providers()
+    }
+
+    /// Whether `provider` is logged in, and how.
+    pub fn login_state(&self, provider: Provider) -> LoginState {
+        self.harness.login_state(provider)
+    }
+
+    /// Starts a login to `provider`.
+    pub fn login(&mut self, provider: Provider) {
+        self.harness.login(provider);
+    }
+
+    /// Removes the saved login of `provider`.
+    pub fn logout(&mut self, provider: Provider) {
+        self.harness.logout(provider);
+    }
+
+    /// The models the providers offer, with the name each is known by.
+    pub fn models(&self) -> Vec<(ModelSpec, String)> {
+        self.harness.models()
     }
 
     /// Views the harness's first session, or starts one on its first agent.
@@ -43,6 +86,26 @@ impl Client {
                 .ok_or("there is no persona to start a session with")?
         };
         Ok(Self { harness, session })
+    }
+
+    /// What the harness has to report: logins, notices, session events and closes.
+    pub fn poll(&mut self) -> Vec<Event> {
+        self.harness.poll()
+    }
+
+    /// Asks the providers for their models again.
+    pub fn refresh_models(&mut self) {
+        self.harness.refresh_models();
+    }
+
+    /// The personas a session can be started with.
+    pub fn personas(&self) -> Vec<PersonaInfo> {
+        self.harness.list_personas()
+    }
+
+    /// The saved logins that can be removed.
+    pub fn saved_logins(&self) -> Vec<Provider> {
+        self.harness.saved_logins()
     }
 
     #[expect(clippy::expect_used, reason = "`close` keeps the viewed session in the harness")]
@@ -59,8 +122,18 @@ impl Client {
         self.harness.session_mut(self.session).expect("the viewed session exists")
     }
 
+    /// Every session's id, and whether it is working.
+    pub fn sessions(&self) -> Vec<(u64, bool)> {
+        self.harness.sessions()
+    }
+
     pub fn submit(&mut self, shown: String, full: String) -> bool {
         self.harness.submit(self.session, shown, full)
+    }
+
+    /// The files a `@` word can complete to.
+    pub fn suggest_files(&self) -> Suggestions {
+        self.harness.suggest_files()
     }
 
     /// Shows `session` instead; false when there is no such session.
@@ -78,16 +151,75 @@ impl Client {
     }
 }
 
-impl Deref for Client {
-    type Target = Harness;
+#[cfg(test)]
+mod tests {
+    use alloc::rc::Rc;
 
-    fn deref(&self) -> &Harness {
-        &self.harness
+    use super::*;
+    use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
+    use thoth_core::models::testing::fixture;
+    use thoth_core::persona::Persona;
+    use thoth_core::test::scripted::Scripted;
+
+    /// A façade over a harness with one session that a `helper` persona can add to.
+    fn client() -> Client {
+        let scripted = Scripted::new(ScriptedAgent::new(), &[]);
+        let mut services = scripted.services(fixture());
+        services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
+        let mut harness = Harness::new(services);
+        harness.start_session_with(1, Box::new(Rc::clone(&scripted.agent)));
+        Client::open(harness).unwrap()
     }
-}
 
-impl DerefMut for Client {
-    fn deref_mut(&mut self) -> &mut Harness {
-        &mut self.harness
+    /// The invariant every exposed path must keep: the viewed id names a session that exists
+    /// and can be viewed.
+    fn views_a_session(client: &Client) -> bool {
+        let viewed = client.session_id();
+        let consistent = client.sessions().iter().any(|&(id, _)| id == viewed);
+        let _view = client.view();
+        consistent
+    }
+
+    #[test]
+    fn closing_the_viewed_session_leaves_the_facade_viewing_another() {
+        let mut client = client();
+        let other = client.create_session("helper").expect("the helper persona exists");
+        assert_eq!(client.session_id(), 1);
+
+        assert!(client.close(1));
+
+        assert_eq!(client.session_id(), other);
+        assert!(views_a_session(&client), "the view moved with the close");
+    }
+
+    #[test]
+    fn closing_another_session_keeps_the_view_where_it_was() {
+        let mut client = client();
+        let other = client.create_session("helper").expect("the helper persona exists");
+
+        assert!(client.close(other));
+
+        assert_eq!(client.session_id(), 1);
+        assert!(views_a_session(&client));
+    }
+
+    #[test]
+    fn the_last_session_is_never_closed_and_the_view_does_not_move() {
+        let mut client = client();
+
+        assert!(!client.close(1));
+
+        assert_eq!(client.session_id(), 1);
+        assert!(views_a_session(&client), "the last session stays viewable");
+    }
+
+    #[test]
+    fn switching_to_a_session_that_does_not_exist_changes_nothing() {
+        let mut client = client();
+
+        assert!(!client.switch(99));
+
+        assert_eq!(client.session_id(), 1);
+        assert!(views_a_session(&client));
     }
 }

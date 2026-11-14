@@ -90,29 +90,18 @@ impl Popup {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::Terminal;
-    use ratatui::backend::TestBackend;
-
     use super::*;
     use crate::picker::Picker;
-    use crate::picker::testing::{fruit_commands, many_choices};
+    use crate::testing::{self, fruit_commands, many_choices};
 
     fn fruit() -> Picker {
         Picker::commands(fruit_commands())
     }
 
     fn draw(popup: &mut Popup, picker: &Picker, busy: bool, anchor_y: u16) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(30, 10)).unwrap();
-        terminal
-            .draw(|frame| {
-                popup.render(frame, &picker.view(), Rect::new(0, anchor_y, 30, 3), Rect::new(0, 0, 30, anchor_y), busy);
-            })
-            .unwrap();
-        let buffer = terminal.backend().buffer().clone();
-        (0..10)
-            .map(|y| (0..30).map(|x| buffer[(x, y)].symbol().to_owned()).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+        testing::screen(30, 10, |frame| {
+            popup.render(frame, &picker.view(), Rect::new(0, anchor_y, 30, 3), Rect::new(0, 0, 30, anchor_y), busy);
+        })
     }
 
     fn screen(picker: &Picker, busy: bool, anchor_y: u16) -> String {

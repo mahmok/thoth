@@ -196,7 +196,7 @@ impl PickerHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::picker::testing::{fruit_choices, fruit_commands, paths};
+    use crate::testing::{fruit_choices, fruit_commands, paths};
 
     /// Fruit for `/`, paths for `@`, and a count of how often each was asked for.
     #[derive(Default)]

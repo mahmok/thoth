@@ -233,56 +233,9 @@ impl Picker {
 }
 
 #[cfg(test)]
-pub mod testing {
-    use crate::command::{Choice, Choices, Command};
-    use thoth_core::builtin::files::{Suggestion, Suggestions};
-
-    pub fn fruit_commands() -> Vec<Command> {
-        let command = |id: &str, description: &str, needs_idle| Command {
-            id: id.into(),
-            description: description.into(),
-            needs_idle,
-        };
-        vec![command("apple", "red", false), command("banana", "yellow", true), command("grape", "purple", false)]
-    }
-
-    pub fn fruit_choices() -> Choices {
-        Choices {
-            command: "fruit".into(),
-            title: "Fruit".into(),
-            items: vec![
-                Choice::new("a", "apple", "red"),
-                Choice::new("b", "banana", "yellow").needing_idle(),
-                Choice::new("g", "grape", "purple"),
-            ],
-            empty_message: "no fruit".into(),
-        }
-    }
-
-    pub fn many_choices() -> Choices {
-        Choices {
-            command: "many".into(),
-            title: "Many".into(),
-            items: (0..20).map(|i| Choice::new(i.to_string(), format!("item{i:02}"), "")).collect(),
-            empty_message: String::new(),
-        }
-    }
-
-    pub fn paths() -> Suggestions {
-        let path = |p: &str| Suggestion {
-            label: p.into(),
-            description: String::new(),
-            partial: format!("@{p}"),
-            full: format!("@{p} "),
-        };
-        Suggestions { title: "Paths".into(), items: vec![path("a.rs"), path("b.rs")], empty_message: "no files".into() }
-    }
-}
-
-#[cfg(test)]
 mod tests {
-    use super::testing::*;
     use super::*;
+    use crate::testing::*;
 
     fn picker() -> Picker {
         Picker::commands(fruit_commands())

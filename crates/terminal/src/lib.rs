@@ -32,6 +32,9 @@ mod prompt;
 mod select;
 /// The token summary line.
 mod stats;
+#[cfg(test)]
+/// The shared test harness and the widget fixtures.
+mod testing;
 mod theme;
 mod units;
 
