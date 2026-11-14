@@ -1,4 +1,5 @@
 /docs/*
 !/docs/agents/
+!/docs/adr/
 /target
 /.idea
