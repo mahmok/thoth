@@ -136,51 +136,6 @@ impl Provider {
         })
     }
 
-    #[must_use]
-    #[inline]
-    /// # Panics
-    ///
-    /// Panics only if the built-in table is edited to leave out `ollama`.
-    pub fn ollama() -> Self {
-        Self::builtin("ollama").expect("ollama is built in")
-    }
-
-    #[must_use]
-    #[inline]
-    /// # Panics
-    ///
-    /// Panics only if the built-in table is edited to leave out `openai`.
-    pub fn openai() -> Self {
-        Self::builtin("openai").expect("openai is built in")
-    }
-
-    #[must_use]
-    #[inline]
-    /// # Panics
-    ///
-    /// Panics only if the built-in table is edited to leave out `anthropic`.
-    pub fn anthropic() -> Self {
-        Self::builtin("anthropic").expect("anthropic is built in")
-    }
-
-    #[must_use]
-    #[inline]
-    /// # Panics
-    ///
-    /// Panics only if the built-in table is edited to leave out `github-copilot`.
-    pub fn copilot() -> Self {
-        Self::builtin("github-copilot").expect("github-copilot is built in")
-    }
-
-    #[must_use]
-    #[inline]
-    /// # Panics
-    ///
-    /// Panics only if the built-in table is edited to leave out `google`.
-    pub fn google() -> Self {
-        Self::builtin("google").expect("google is built in")
-    }
-
     /// Every built-in provider, in menu order.
     #[must_use]
     #[inline]
@@ -195,10 +150,15 @@ impl Provider {
         LOGIN_IDS.iter().filter_map(|id| Self::builtin(id)).collect()
     }
 
+    /// How the provider takes a token over `protocol`. A GitHub Copilot token is always a bearer
+    /// token, even when the model speaks the Anthropic protocol.
     #[must_use]
     #[inline]
-    pub fn is_builtin(&self) -> bool {
-        BUILTIN_IDS.contains(&self.id.as_str())
+    pub const fn auth_header(&self, protocol: Protocol) -> AuthHeader {
+        match self.login {
+            LoginMethod::GithubDevice => AuthHeader::Bearer,
+            LoginMethod::ApiKey | LoginMethod::None => AuthHeader::from_protocol(protocol),
+        }
     }
 
     /// The base URL for a protocol. Ollama serves the OpenAI-compatible API under `/v1`
@@ -308,13 +268,17 @@ impl Protocol {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "context_limit", skip_serializing_if = "Option::is_none")]
     pub context_limit: Option<u32>,
     pub id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<Protocol>,
+    /// The provider that serves it, when a Persona file names the model before the models
+    /// store has resolved it. A provider's own models leave this empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 impl Model {
@@ -329,7 +293,19 @@ impl Model {
         IntoId: Into<String>,
     {
         let id = id.into();
-        Self { context_limit: None, id: id.clone(), name: id, protocol: None }
+        Self { context_limit: None, id: id.clone(), name: id, protocol: None, provider: None }
+    }
+
+    /// A model named in a Persona file, with the provider it belongs to.
+    #[must_use]
+    #[inline]
+    pub fn reference<IntoProvider, IntoId>(provider: IntoProvider, id: IntoId) -> Self
+    where
+        IntoProvider: Into<String>,
+        IntoId: Into<String>,
+    {
+        let id = id.into();
+        Self { context_limit: None, id, name: String::new(), protocol: None, provider: Some(provider.into()) }
     }
 
     /// The name to show: the provider's name for it, or its id.
@@ -401,13 +377,6 @@ impl ModelSpec {
         self.model.protocol.unwrap_or(self.provider.protocol)
     }
 
-    /// Names this model uniquely and stays the same across runs: `provider/protocol/id`.
-    #[must_use]
-    #[inline]
-    pub fn key(&self) -> String {
-        format!("{}/{}/{}", self.provider.id, self.protocol().label(), self.model.id)
-    }
-
     #[must_use]
     #[inline]
     /// The model id with its provider, for lists.
@@ -420,37 +389,13 @@ impl ModelSpec {
     }
 }
 
-/// A model named in a Persona file. It is resolved to a [`ModelSpec`] through the models store.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ModelRef {
-    pub provider: String,
-    pub id: String,
-    #[serde(default)]
-    pub context_limit: Option<u32>,
-    #[serde(default)]
-    pub protocol: Option<Protocol>,
-}
-
-impl ModelRef {
-    #[must_use]
-    #[inline]
-    pub fn new(provider: impl Into<String>, id: impl Into<String>) -> Self {
-        Self { provider: provider.into(), id: id.into(), context_limit: None, protocol: None }
-    }
-
-    /// The model this names, served by `provider`.
-    #[must_use]
-    #[inline]
-    pub fn resolve(self, provider: Arc<Provider>) -> ModelSpec {
-        let model =
-            Model { context_limit: self.context_limit, id: self.id, name: String::new(), protocol: self.protocol };
-        ModelSpec::new(provider, model)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn builtin(id: &str) -> Provider {
+        Provider::builtin(id).expect("the provider is built in")
+    }
 
     #[test]
     fn labels_name_the_model_and_provider() {
@@ -458,24 +403,22 @@ mod tests {
             let model = Model::new(id).with_protocol(protocol);
             ModelSpec::new(Arc::new(provider), model).label()
         };
-        assert_eq!(label(Provider::ollama(), None, "bonsai-2:2b"), "bonsai-2:2b (ollama/openai)");
+        assert_eq!(label(builtin("ollama"), None, "bonsai-2:2b"), "bonsai-2:2b (ollama/openai)");
         assert_eq!(
-            label(Provider::ollama(), Some(Protocol::Anthropic), "bonsai-2:2b"),
+            label(builtin("ollama"), Some(Protocol::Anthropic), "bonsai-2:2b"),
             "bonsai-2:2b (ollama/anthropic)"
         );
-        assert_eq!(label(Provider::openai(), None, "gpt-4.1"), "gpt-4.1 (openai)");
-        assert_eq!(label(Provider::copilot(), None, "claude-sonnet-4.5"), "claude-sonnet-4.5 (github-copilot)");
+        assert_eq!(label(builtin("openai"), None, "gpt-4.1"), "gpt-4.1 (openai)");
+        assert_eq!(label(builtin("github-copilot"), None, "claude-sonnet-4.5"), "claude-sonnet-4.5 (github-copilot)");
         assert_eq!(label(Provider::custom("my-gateway"), None, "m"), "m (my-gateway)");
     }
 
     #[test]
-    fn keys_are_stable_and_include_the_effective_protocol() {
-        let spec = |provider: Provider, protocol: Option<Protocol>| {
-            ModelSpec::new(Arc::new(provider), Model::new("m").with_protocol(protocol)).key()
-        };
-        assert_eq!(spec(Provider::ollama(), None), "ollama/openai/m");
-        assert_eq!(spec(Provider::openai(), None), "openai/responses/m");
-        assert_eq!(spec(Provider::ollama(), Some(Protocol::Anthropic)), "ollama/anthropic/m");
+    fn a_reference_names_the_model_and_the_provider_that_serves_it() {
+        let reference = Model::reference("ollama", "qwen");
+        assert_eq!(reference.provider.as_deref(), Some("ollama"));
+        assert_eq!(reference.display_name(), "qwen");
+        assert_eq!(Model::new("m").provider, None);
     }
 
     #[test]
@@ -489,19 +432,19 @@ mod tests {
 
     #[test]
     fn only_local_builtins_skip_login_and_the_others_are_offered_for_login() {
-        assert_eq!(Provider::ollama().login_method(), LoginMethod::None);
+        assert_eq!(builtin("ollama").login_method(), LoginMethod::None);
         assert!(Provider::logins().iter().all(|p| p.login_method() != LoginMethod::None));
         assert_eq!(Provider::logins().into_iter().map(|p| p.id).collect::<Vec<_>>(), LOGIN_IDS);
     }
 
     #[test]
     fn each_builtin_knows_how_it_logs_in_and_where_its_key_lives() {
-        assert_eq!(Provider::copilot().login_method(), LoginMethod::GithubDevice);
-        assert_eq!(Provider::openai().login_method(), LoginMethod::ApiKey);
-        assert_eq!(Provider::openai().env_var.as_deref(), Some("OPENAI_API_KEY"));
-        assert_eq!(Provider::anthropic().env_var.as_deref(), Some("ANTHROPIC_API_KEY"));
-        assert_eq!(Provider::google().env_var.as_deref(), Some("GOOGLE_API_KEY"));
-        assert_eq!(Provider::copilot().env_var, None);
+        assert_eq!(builtin("github-copilot").login_method(), LoginMethod::GithubDevice);
+        assert_eq!(builtin("openai").login_method(), LoginMethod::ApiKey);
+        assert_eq!(builtin("openai").env_var.as_deref(), Some("OPENAI_API_KEY"));
+        assert_eq!(builtin("anthropic").env_var.as_deref(), Some("ANTHROPIC_API_KEY"));
+        assert_eq!(builtin("google").env_var.as_deref(), Some("GOOGLE_API_KEY"));
+        assert_eq!(builtin("github-copilot").env_var, None);
         assert_eq!(Provider::custom("gw").login_method(), LoginMethod::ApiKey);
     }
 
@@ -514,19 +457,29 @@ mod tests {
     }
 
     #[test]
+    fn copilot_takes_a_bearer_token_over_every_protocol() {
+        assert_eq!(builtin("github-copilot").auth_header(Protocol::Anthropic), AuthHeader::Bearer);
+        assert_eq!(builtin("anthropic").auth_header(Protocol::Anthropic), AuthHeader::CustomHeader("x-api-key"));
+        assert_eq!(builtin("ollama").auth_header(Protocol::Anthropic), AuthHeader::CustomHeader("x-api-key"));
+    }
+
+    #[test]
     fn each_provider_and_protocol_has_a_base_url() {
-        assert_eq!(Provider::ollama().base_url_for(Protocol::OpenAi), "http://localhost:11434/v1");
-        assert_eq!(Provider::ollama().base_url_for(Protocol::Anthropic), "http://localhost:11434");
-        assert_eq!(Provider::openai().base_url_for(Protocol::OpenAi), "https://api.openai.com/v1");
-        assert_eq!(Provider::anthropic().base_url_for(Protocol::Anthropic), "https://api.anthropic.com");
-        assert_eq!(Provider::copilot().base_url_for(Protocol::OpenAi), "https://api.individual.githubcopilot.com");
-        assert_eq!(Provider::google().base_url_for(Protocol::Google), "https://generativelanguage.googleapis.com");
+        assert_eq!(builtin("ollama").base_url_for(Protocol::OpenAi), "http://localhost:11434/v1");
+        assert_eq!(builtin("ollama").base_url_for(Protocol::Anthropic), "http://localhost:11434");
+        assert_eq!(builtin("openai").base_url_for(Protocol::OpenAi), "https://api.openai.com/v1");
+        assert_eq!(builtin("anthropic").base_url_for(Protocol::Anthropic), "https://api.anthropic.com");
+        assert_eq!(
+            builtin("github-copilot").base_url_for(Protocol::OpenAi),
+            "https://api.individual.githubcopilot.com"
+        );
+        assert_eq!(builtin("google").base_url_for(Protocol::Google), "https://generativelanguage.googleapis.com");
     }
 
     #[test]
     fn a_model_can_override_its_providers_protocol() {
         let spec = ModelSpec::new(
-            Arc::new(Provider::ollama()),
+            Arc::new(builtin("ollama")),
             Model::new("m").with_protocol(Some(Protocol::Anthropic)).with_context_limit(Some(8192)),
         );
         assert_eq!(spec.protocol(), Protocol::Anthropic);
@@ -535,9 +488,9 @@ mod tests {
 
     #[test]
     fn provider_equality_is_by_id_alone() {
-        let mut other = Provider::ollama();
+        let mut other = builtin("ollama");
         other.display_name = "Elsewhere".into();
         other.models = vec![Model::new("m")];
-        assert_eq!(Provider::ollama(), other);
+        assert_eq!(builtin("ollama"), other);
     }
 }

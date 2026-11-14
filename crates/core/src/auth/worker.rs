@@ -92,40 +92,43 @@ mod tests {
     async fn an_api_key_login_round_trips_through_the_worker() {
         let store = Arc::new(CredentialStore::in_memory());
         let worker = TokioLogin::new(Arc::clone(&store));
-        worker.start(Provider::openai());
+        worker.start(Provider::builtin("openai").unwrap());
 
         assert!(matches!(next_event(&worker).await, LoginEvent::PromptSecret { .. }));
         worker.answer("sk-worker".into());
-        assert_eq!(next_event(&worker).await, LoginEvent::Done(Provider::openai()));
-        assert_eq!(store.read(&Provider::openai()), Some(Credential::ApiKey { key: "sk-worker".into() }));
+        assert_eq!(next_event(&worker).await, LoginEvent::Done(Provider::builtin("openai").unwrap()));
+        assert_eq!(
+            store.read(&Provider::builtin("openai").unwrap()),
+            Some(Credential::ApiKey { key: "sk-worker".into() })
+        );
     }
 
     #[tokio::test]
     async fn a_cancelled_login_reports_nothing_more_and_saves_nothing() {
         let store = Arc::new(CredentialStore::in_memory());
         let worker = TokioLogin::new(Arc::clone(&store));
-        worker.start(Provider::anthropic());
+        worker.start(Provider::builtin("anthropic").unwrap());
         assert!(matches!(next_event(&worker).await, LoginEvent::PromptSecret { .. }));
         worker.cancel();
         worker.answer("sk-late".into());
         time::sleep(Duration::from_millis(50)).await;
         assert!(worker.try_next().is_none());
-        assert!(store.read(&Provider::anthropic()).is_none());
+        assert!(store.read(&Provider::builtin("anthropic").unwrap()).is_none());
     }
 
     #[tokio::test]
     async fn starting_again_replaces_the_running_login() {
         let store = Arc::new(CredentialStore::in_memory());
         let worker = TokioLogin::new(Arc::clone(&store));
-        worker.start(Provider::openai());
+        worker.start(Provider::builtin("openai").unwrap());
         assert!(matches!(next_event(&worker).await, LoginEvent::PromptSecret { .. }));
 
-        worker.start(Provider::anthropic());
+        worker.start(Provider::builtin("anthropic").unwrap());
         assert!(
             matches!(next_event(&worker).await, LoginEvent::PromptSecret { message } if message.contains("Anthropic"))
         );
         worker.answer("sk-ant".into());
-        assert_eq!(next_event(&worker).await, LoginEvent::Done(Provider::anthropic()));
-        assert!(store.read(&Provider::openai()).is_none());
+        assert_eq!(next_event(&worker).await, LoginEvent::Done(Provider::builtin("anthropic").unwrap()));
+        assert!(store.read(&Provider::builtin("openai").unwrap()).is_none());
     }
 }

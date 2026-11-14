@@ -1033,7 +1033,8 @@ mod tests {
 
     #[test]
     fn logging_out_says_so() {
-        let mut h = Harness::build(Scripted::new(ScriptedAgent::new(), &[Provider::copilot()]), None);
+        let mut h =
+            Harness::build(Scripted::new(ScriptedAgent::new(), &[Provider::builtin("github-copilot").unwrap()]), None);
         h.type_text("/logout");
         h.press(KeyCode::Enter);
         h.press(KeyCode::Enter);

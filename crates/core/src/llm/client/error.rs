@@ -63,22 +63,7 @@ impl fmt::Display for Failure {
     }
 }
 
-impl error::Error for Failure {
-    #[inline]
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
-
-    #[inline]
-    fn description(&self) -> &'static str {
-        "a request to a model failed"
-    }
-
-    #[inline]
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
+impl error::Error for Failure {}
 
 impl From<reqwest::Error> for Failure {
     #[inline]

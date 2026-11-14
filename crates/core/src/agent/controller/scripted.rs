@@ -49,7 +49,7 @@ impl Controller {
     pub fn new() -> Rc<Self> {
         Rc::new(Self {
             settings: RefCell::new(Settings {
-                model: Some(ModelSpec::new(Arc::new(Provider::ollama()), Model::new("bonsai-2:2b"))),
+                model: Some(ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("bonsai-2:2b"))),
                 thinking: Thinking::default(),
             }),
             skills: RefCell::default(),

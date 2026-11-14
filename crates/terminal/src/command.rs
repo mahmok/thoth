@@ -224,7 +224,8 @@ fn models(session: &Client) -> Vec<Pick> {
             } else {
                 spec.provider.display_name().to_owned()
             };
-            let choice = Choice::new(spec.key(), spec.label(), note).needing_idle();
+            let key = format!("{}/{}/{}", spec.provider.id, spec.protocol().label(), spec.model.id);
+            let choice = Choice::new(key, spec.label(), note).needing_idle();
             let apply: Apply = Box::new(move |s| Ok(s.session_mut().set_model(spec)?));
             (choice, apply)
         })
@@ -552,7 +553,7 @@ mod tests {
 
     #[test]
     fn login_and_logout_list_their_own_providers() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::openai()]);
+        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::builtin("openai").unwrap()]);
         let logins = open(&mut f.harness, "login");
         assert_eq!(labels(&logins), ["GitHub Copilot", "OpenAI", "Anthropic", "Google"]);
         assert_eq!(logins.items[1].description, "logged in");
@@ -569,7 +570,7 @@ mod tests {
 
     #[test]
     fn logout_removes_the_saved_login_and_the_old_list_is_then_stale() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::copilot()]);
+        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::builtin("github-copilot").unwrap()]);
         let saved = open(&mut f.harness, "logout");
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Ok(Ran::Done));
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Err(Refused::UnknownChoice));

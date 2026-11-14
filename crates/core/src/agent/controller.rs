@@ -128,7 +128,7 @@ mod tests {
 
     fn controller(script: Vec<Result<StreamedCompletion, ClientError>>) -> TokioAgent {
         let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(ModelSpec::new(Arc::new(Provider::ollama()), Model::new("m")))
+            .with_model(ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("m")))
             .with_client(AnyClient::Fake(FakeClient::new(script)));
         TokioAgent::new(Arc::new(agent))
     }

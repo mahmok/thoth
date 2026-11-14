@@ -112,7 +112,7 @@ where
             Ok(Fetched::Models(models)) => {
                 let count = models.len();
                 let updated = Provider { models, checked_at: now_ms(), ..provider.clone() };
-                match store.write(&updated) {
+                match store.save(&updated) {
                     Ok(()) => Event::Fetched { provider: provider.clone(), count },
                     Err(e) => {
                         Event::Failed { provider: provider.clone(), error: format!("cannot save the models: {e}") }
@@ -176,20 +176,26 @@ mod tests {
         ])
         .await;
         let credentials = CredentialStore::in_memory();
-        credentials.write(&Provider::anthropic(), Credential::ApiKey { key: "k".into() }).unwrap();
+        credentials.write(&Provider::builtin("anthropic").unwrap(), Credential::ApiKey { key: "k".into() }).unwrap();
         let store = InMemoryModelsStore::default();
 
-        let events = refresh(&server, credentials, &store, &[Provider::ollama(), Provider::anthropic()]).await;
+        let events = refresh(
+            &server,
+            credentials,
+            &store,
+            &[Provider::builtin("ollama").unwrap(), Provider::builtin("anthropic").unwrap()],
+        )
+        .await;
         assert_eq!(
             events,
             [
-                Event::Fetched { provider: Provider::ollama(), count: 2 },
-                Event::Fetched { provider: Provider::anthropic(), count: 1 },
+                Event::Fetched { provider: Provider::builtin("ollama").unwrap(), count: 2 },
+                Event::Fetched { provider: Provider::builtin("anthropic").unwrap(), count: 1 },
                 Event::Finished,
             ]
         );
-        assert_eq!(store.read("ollama").unwrap().models.len(), 2);
-        let anthropic = store.read("anthropic").unwrap();
+        assert_eq!(store.provider("ollama").unwrap().models.len(), 2);
+        let anthropic = store.provider("anthropic").unwrap();
         assert_eq!(anthropic.models[0].name, "Claude X");
         assert!(anthropic.checked_at > 0);
     }
@@ -202,22 +208,30 @@ mod tests {
         ])
         .await;
         let credentials = CredentialStore::in_memory();
-        credentials.write(&Provider::anthropic(), Credential::ApiKey { key: "k".into() }).unwrap();
+        credentials.write(&Provider::builtin("anthropic").unwrap(), Credential::ApiKey { key: "k".into() }).unwrap();
         let store = store_with(&[("ollama", &[("old-model", Some(Protocol::OpenAi))])]);
 
-        let events = refresh(&server, credentials, store.as_ref(), &[Provider::ollama(), Provider::anthropic()]).await;
+        let events = refresh(
+            &server,
+            credentials,
+            store.as_ref(),
+            &[Provider::builtin("ollama").unwrap(), Provider::builtin("anthropic").unwrap()],
+        )
+        .await;
         assert!(matches!(&events[0], Event::Failed { provider, .. } if provider.id == "ollama"));
-        assert_eq!(events[1], Event::Fetched { provider: Provider::anthropic(), count: 1 });
-        assert_eq!(store.read("ollama").unwrap().models[0].id, "old-model");
+        assert_eq!(events[1], Event::Fetched { provider: Provider::builtin("anthropic").unwrap(), count: 1 });
+        assert_eq!(store.provider("ollama").unwrap().models[0].id, "old-model");
     }
 
     #[tokio::test]
     async fn a_provider_without_credentials_is_skipped_and_untouched() {
         let server = MockServer::start(vec![]).await;
         let store = store_with(&[("openai", &[("cached", Some(Protocol::OpenAi))])]);
-        let events = refresh(&server, CredentialStore::in_memory(), store.as_ref(), &[Provider::openai()]).await;
-        assert_eq!(events, [Event::Skipped(Provider::openai()), Event::Finished]);
-        assert_eq!(store.read("openai").unwrap().models[0].id, "cached");
+        let events =
+            refresh(&server, CredentialStore::in_memory(), store.as_ref(), &[Provider::builtin("openai").unwrap()])
+                .await;
+        assert_eq!(events, [Event::Skipped(Provider::builtin("openai").unwrap()), Event::Finished]);
+        assert_eq!(store.provider("openai").unwrap().models[0].id, "cached");
         assert!(server.requests().is_empty());
     }
 
@@ -230,16 +244,20 @@ mod tests {
     #[test]
     fn a_refresh_announces_itself_and_reports_each_provider() {
         let mut r = rig();
-        let providers = vec![Provider::ollama(), Provider::openai(), Provider::anthropic()];
+        let providers = vec![
+            Provider::builtin("ollama").unwrap(),
+            Provider::builtin("openai").unwrap(),
+            Provider::builtin("anthropic").unwrap(),
+        ];
         let updates = r.start(providers.clone());
         assert_eq!(updates, [Notice::Say("Refreshing models...".into())]);
         assert_eq!(r.worker.started(), [providers]);
         assert!(r.session.is_running());
 
-        r.worker.event(Event::Fetched { provider: Provider::ollama(), count: 3 });
-        r.worker.event(Event::Fetched { provider: Provider::openai(), count: 1 });
-        r.worker.event(Event::Skipped(Provider::copilot()));
-        r.worker.event(Event::Failed { provider: Provider::anthropic(), error: "http error".into() });
+        r.worker.event(Event::Fetched { provider: Provider::builtin("ollama").unwrap(), count: 3 });
+        r.worker.event(Event::Fetched { provider: Provider::builtin("openai").unwrap(), count: 1 });
+        r.worker.event(Event::Skipped(Provider::builtin("github-copilot").unwrap()));
+        r.worker.event(Event::Failed { provider: Provider::builtin("anthropic").unwrap(), error: "http error".into() });
         r.worker.event(Event::Finished);
         assert_eq!(
             r.poll(),
@@ -256,13 +274,16 @@ mod tests {
     #[test]
     fn a_second_refresh_while_one_runs_is_ignored() {
         let mut r = rig();
-        r.start(vec![Provider::ollama()]);
-        assert_eq!(r.start(vec![Provider::openai()]), [Notice::Say("A refresh is already running.".into())]);
+        r.start(vec![Provider::builtin("ollama").unwrap()]);
+        assert_eq!(
+            r.start(vec![Provider::builtin("openai").unwrap()]),
+            [Notice::Say("A refresh is already running.".into())]
+        );
         assert_eq!(r.worker.started().len(), 1);
 
         r.worker.event(Event::Finished);
         r.poll();
-        assert_eq!(r.start(vec![Provider::openai()]), [Notice::Say("Refreshing models...".into())]);
+        assert_eq!(r.start(vec![Provider::builtin("openai").unwrap()]), [Notice::Say("Refreshing models...".into())]);
         assert_eq!(r.worker.started().len(), 2);
     }
 }

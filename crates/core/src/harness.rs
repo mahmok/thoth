@@ -217,7 +217,7 @@ impl Harness {
         self.credentials
             .stored()
             .into_iter()
-            .filter_map(|id| self.models.read(&id).map(|provider| provider.as_ref().clone()))
+            .filter_map(|id| self.models.provider(&id).map(|provider| provider.as_ref().clone()))
             .collect()
     }
 

@@ -54,22 +54,7 @@ impl fmt::Display for LimitReached {
     }
 }
 
-impl error::Error for LimitReached {
-    #[inline]
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
-
-    #[inline]
-    fn description(&self) -> &'static str {
-        "the Sub-agent limit was reached"
-    }
-
-    #[inline]
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
+impl error::Error for LimitReached {}
 
 #[derive(Default, Debug)]
 /// The Sub-agents of a Root agent.
@@ -251,7 +236,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     fn spec(model: &str) -> ModelSpec {
-        ModelSpec::new(Arc::new(Provider::ollama()), Model::new(model))
+        ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new(model))
     }
 
     fn persona(key: &str) -> Persona {

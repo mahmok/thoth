@@ -56,7 +56,7 @@ impl AgentBuilder {
             .with_context(&context);
         if let Some(model) = persona.model.as_ref()
             && let Some(provider_id) = model.provider.as_deref()
-            && let Some(provider) = self.models.read(provider_id)
+            && let Some(provider) = self.models.provider(provider_id)
         {
             let mut model = model.clone();
             model.provider = None;
@@ -224,7 +224,7 @@ mod tests {
     fn a_persona_selects_its_tools() {
         let tree = TempTree::new("builder-tools");
         let builder = builder(&tree);
-        assert_eq!(offered(&builder.build(&Persona::new("a", "A", ""))).len(), 7);
+        assert_eq!(offered(&builder.build(&Persona::new("a", "A", ""))).len(), 8);
 
         let explorer = builder.build(&explorer());
         assert_eq!(offered(&explorer), ["read_file", "list_directory", "search_files"]);
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn a_persona_can_set_its_own_model_and_thinking() {
         let tree = TempTree::new("builder-settings");
-        let model = ModelSpec::new(Arc::new(Provider::openai()), Model::new("gpt-4.1"));
+        let model = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4.1"));
         let persona =
             Persona::new("a", "A", "").with_model(Model::reference("openai", "gpt-4.1")).with_thinking(Thinking::High);
         let agent = builder(&tree).build(&persona);

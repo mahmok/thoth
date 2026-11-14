@@ -118,7 +118,7 @@ impl ModelFetcher {
     }
 
     fn auth(&self, provider: &Provider) -> Auth {
-        let auth = Auth::for_provider(provider, Arc::clone(&self.credentials));
+        let auth = Auth::for_provider(provider.clone(), Arc::clone(&self.credentials));
         match self.base_url.as_ref() {
             Some(base_url) => auth.with_base_url(base_url),
             None => auth,
@@ -255,7 +255,7 @@ mod tests {
     async fn ollama_models_are_listed_once_as_openai_protocol_without_any_login() {
         let server = serve("/models", r#"{"data":[{"id":"mistral:latest"},{"id":"bonsai-2:2b"}]}"#).await;
         let fetcher = ModelFetcher::new(credentials(None)).with_base_url(&server.url);
-        let models = ids(fetcher.fetch(&Provider::ollama()).await.unwrap());
+        let models = ids(fetcher.fetch(&Provider::builtin("ollama").unwrap()).await.unwrap());
         assert_eq!(models, [("bonsai-2:2b".into(), Protocol::OpenAi), ("mistral:latest".into(), Protocol::OpenAi)]);
     }
 
@@ -266,8 +266,9 @@ mod tests {
             {"id":"omni-moderation-latest"},{"id":"gpt-4o-audio-preview"},{"id":"gpt-image-1"},
             {"id":"o3-mini"},{"id":"gpt-4o-transcribe"},{"id":"davinci-002"},{"id":"babbage-002"}]}"#;
         let server = serve("/models", body).await;
-        let fetcher = ModelFetcher::new(credentials(Some((Provider::openai(), key())))).with_base_url(&server.url);
-        let models = ids(fetcher.fetch(&Provider::openai()).await.unwrap());
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::builtin("openai").unwrap(), key()))))
+            .with_base_url(&server.url);
+        let models = ids(fetcher.fetch(&Provider::builtin("openai").unwrap()).await.unwrap());
         assert_eq!(models.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), ["gpt-4.1", "gpt-4o", "o3-mini"]);
         assert_eq!(server.requests()[0].header("authorization"), Some("Bearer sk-test"));
     }
@@ -276,8 +277,9 @@ mod tests {
     async fn anthropic_models_keep_their_display_names() {
         let body = r#"{"data":[{"id":"claude-sonnet-4-5","display_name":"Claude Sonnet 4.5","type":"model","max_input_tokens":200000},{"id":"claude-x"}]}"#;
         let server = serve("/v1/models", body).await;
-        let fetcher = ModelFetcher::new(credentials(Some((Provider::anthropic(), key())))).with_base_url(&server.url);
-        let Fetched::Models(models) = fetcher.fetch(&Provider::anthropic()).await.unwrap() else {
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::builtin("anthropic").unwrap(), key()))))
+            .with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::builtin("anthropic").unwrap()).await.unwrap() else {
             panic!("expected models")
         };
         assert_eq!(models[0].id, "claude-sonnet-4-5");
@@ -306,8 +308,10 @@ mod tests {
         let server = serve("/models", body).await;
         let token =
             Credential::Oauth { refresh: "gh".into(), access: "copilot-tok".into(), expires: now_ms() + 3_600_000 };
-        let fetcher = ModelFetcher::new(credentials(Some((Provider::copilot(), token)))).with_base_url(&server.url);
-        let Fetched::Models(models) = fetcher.fetch(&Provider::copilot()).await.unwrap() else {
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::builtin("github-copilot").unwrap(), token))))
+            .with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::builtin("github-copilot").unwrap()).await.unwrap()
+        else {
             panic!("expected models")
         };
 
@@ -339,8 +343,9 @@ mod tests {
             {"name":"models/text-embedding-004","displayName":"Embedding",
              "supportedGenerationMethods":["embedContent"]}]}"#;
         let server = serve("/v1beta/models", body).await;
-        let fetcher = ModelFetcher::new(credentials(Some((Provider::google(), key())))).with_base_url(&server.url);
-        let Fetched::Models(models) = fetcher.fetch(&Provider::google()).await.unwrap() else {
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::builtin("google").unwrap(), key()))))
+            .with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::builtin("google").unwrap()).await.unwrap() else {
             panic!("expected models")
         };
         assert_eq!(models.len(), 1);
@@ -367,11 +372,12 @@ mod tests {
     async fn http_errors_and_rejected_keys_are_errors() {
         let server = MockServer::start(vec![("/models", vec![(500, "{}".into())])]).await;
         let fetcher = ModelFetcher::new(credentials(None)).with_base_url(&server.url);
-        assert!(matches!(fetcher.fetch(&Provider::ollama()).await, Err(ClientError::Http(_))));
+        assert!(matches!(fetcher.fetch(&Provider::builtin("ollama").unwrap()).await, Err(ClientError::Http(_))));
 
         let rejecting = MockServer::start(vec![("/models", vec![(401, "{}".into())])]).await;
-        let keyed = ModelFetcher::new(credentials(Some((Provider::openai(), key())))).with_base_url(&rejecting.url);
-        let err = keyed.fetch(&Provider::openai()).await.unwrap_err();
+        let keyed = ModelFetcher::new(credentials(Some((Provider::builtin("openai").unwrap(), key()))))
+            .with_base_url(&rejecting.url);
+        let err = keyed.fetch(&Provider::builtin("openai").unwrap()).await.unwrap_err();
         assert!(err.to_string().contains("rejected"), "{err}");
     }
 
@@ -379,14 +385,14 @@ mod tests {
     async fn an_unexpected_body_is_an_error() {
         let server = serve("/models", r#"{"surprise":true}"#).await;
         let fetcher = ModelFetcher::new(credentials(None)).with_base_url(&server.url);
-        fetcher.fetch(&Provider::ollama()).await.unwrap_err();
+        fetcher.fetch(&Provider::builtin("ollama").unwrap()).await.unwrap_err();
     }
 
     #[tokio::test]
     #[ignore = "needs a local Ollama server"]
     async fn the_real_ollama_lists_its_models() {
         let fetcher = ModelFetcher::new(credentials(None));
-        let models = ids(fetcher.fetch(&Provider::ollama()).await.unwrap());
+        let models = ids(fetcher.fetch(&Provider::builtin("ollama").unwrap()).await.unwrap());
         assert_not_empty(&models);
     }
 }

@@ -77,7 +77,7 @@ mod tests {
         let names: Vec<String> = builtin(tree.workspace()).definitions().iter().map(|d| d.name.clone()).collect();
         assert_eq!(
             names,
-            ["read_file", "list_directory", "search_files", "find_files", "edit_file", "write_file", "bash"]
+            ["read_file", "list_directory", "search_files", "find_files", "edit_file", "write_file", "bash", "invoke_skill"]
         );
     }
 }

@@ -200,16 +200,16 @@ mod tests {
     fn starting_a_login_announces_it_and_becomes_active() {
         let mut r = rig();
         assert!(!r.session.is_active());
-        let updates = r.start(Provider::copilot());
+        let updates = r.start(Provider::builtin("github-copilot").unwrap());
         assert_eq!(says(&updates), ["Logging in to GitHub Copilot..."]);
-        assert_eq!(r.worker.started(), [Provider::copilot()]);
+        assert_eq!(r.worker.started(), [Provider::builtin("github-copilot").unwrap()]);
         assert!(r.session.is_active() && !r.session.awaiting_secret());
     }
 
     #[test]
     fn the_device_code_is_kept_and_shown_with_its_link_until_the_login_ends() {
         let mut r = rig();
-        r.start(Provider::copilot());
+        r.start(Provider::builtin("github-copilot").unwrap());
         r.worker
             .event(LoginEvent::DeviceCode { url: "https://github.com/login/device".into(), code: "ABCD-1234".into() });
         let updates = r.poll();
@@ -219,7 +219,7 @@ mod tests {
         assert_eq!(r.session.device_code(), Some("ABCD-1234"));
         assert!(r.session.is_active() && !r.session.awaiting_secret());
 
-        r.worker.event(LoginEvent::Done(Provider::copilot()));
+        r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         r.poll();
         assert_eq!(r.session.device_code(), None);
     }
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn asking_for_a_secret_switches_to_hidden_input_until_it_is_submitted() {
         let mut r = rig();
-        r.start(Provider::openai());
+        r.start(Provider::builtin("openai").unwrap());
         r.worker.event(LoginEvent::PromptSecret { message: "Paste your OpenAI API key".into() });
         assert_eq!(says(&r.poll()), ["Paste your OpenAI API key"]);
         assert!(r.session.awaiting_secret());
@@ -241,7 +241,7 @@ mod tests {
     fn a_secret_is_only_accepted_when_one_was_asked_for() {
         let mut r = rig();
         r.session.submit("sk-stray".into());
-        r.start(Provider::copilot());
+        r.start(Provider::builtin("github-copilot").unwrap());
         r.session.submit("sk-stray".into());
         assert_empty(r.worker.answers());
     }
@@ -249,10 +249,10 @@ mod tests {
     #[test]
     fn finishing_goes_idle_and_reports_who_logged_in() {
         let mut r = rig();
-        r.start(Provider::copilot());
-        r.worker.event(LoginEvent::Done(Provider::copilot()));
+        r.start(Provider::builtin("github-copilot").unwrap());
+        r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         assert_eq!(r.poll(), [Notice::say("Logged in to GitHub Copilot.")]);
-        assert_eq!(r.session.take_logged_in(), [Provider::copilot()]);
+        assert_eq!(r.session.take_logged_in(), [Provider::builtin("github-copilot").unwrap()]);
         assert_empty(r.session.take_logged_in());
         assert!(!r.session.is_active());
     }
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn a_failure_reports_the_error_and_goes_idle() {
         let mut r = rig();
-        r.start(Provider::copilot());
+        r.start(Provider::builtin("github-copilot").unwrap());
         r.worker.event(LoginEvent::Failed("device flow failed: access_denied".into()));
         assert_eq!(r.poll(), [Notice::fail("device flow failed: access_denied")]);
         assert!(!r.session.is_active());
@@ -269,12 +269,12 @@ mod tests {
     #[test]
     fn cancelling_stops_the_worker_and_ignores_what_the_login_still_sends() {
         let mut r = rig();
-        r.start(Provider::copilot());
+        r.start(Provider::builtin("github-copilot").unwrap());
         assert_eq!(r.session.cancel(), [Notice::say("Login cancelled.")]);
         assert_eq!(r.worker.cancelled(), 1);
         assert!(!r.session.is_active());
 
-        r.worker.event(LoginEvent::Done(Provider::copilot()));
+        r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         assert_empty(r.poll());
     }
 
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn events_from_a_cancelled_login_are_ignored() {
         let mut r = rig();
-        r.start(Provider::openai());
+        r.start(Provider::builtin("openai").unwrap());
         r.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
         r.session.cancel();
         assert_empty(r.poll());
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn events_with_no_login_running_are_ignored() {
         let mut r = rig();
-        r.worker.event(LoginEvent::Done(Provider::copilot()));
+        r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         r.worker.event(LoginEvent::Failed("late".into()));
         assert_empty(r.poll());
         assert_empty(r.session.take_logged_in());
@@ -307,8 +307,11 @@ mod tests {
     #[test]
     fn logging_out_removes_the_saved_login() {
         let r = rig();
-        r.store.write(&Provider::copilot(), Credential::ApiKey { key: "k".into() }).unwrap();
-        assert_eq!(r.session.logout(Provider::copilot()), [Notice::say("Logged out of GitHub Copilot.")]);
-        assert!(r.store.read(&Provider::copilot()).is_none());
+        r.store.write(&Provider::builtin("github-copilot").unwrap(), Credential::ApiKey { key: "k".into() }).unwrap();
+        assert_eq!(
+            r.session.logout(Provider::builtin("github-copilot").unwrap()),
+            [Notice::say("Logged out of GitHub Copilot.")]
+        );
+        assert!(r.store.read(&Provider::builtin("github-copilot").unwrap()).is_none());
     }
 }

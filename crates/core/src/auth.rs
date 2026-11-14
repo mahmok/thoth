@@ -29,7 +29,7 @@ use serde::Serialize;
 
 use crate::llm::client::chat::Message;
 use crate::llm::client::error::Failure as ClientError;
-use crate::llm::provider::{AuthHeader, LoginMethod, Model, Protocol, Provider};
+use crate::llm::provider::{AuthHeader, LoginMethod, ModelSpec, Protocol, Provider};
 
 use credential::Credential;
 use github::{Endpoints, Github};
@@ -48,7 +48,7 @@ pub enum Failure {
 impl fmt::Display for Failure {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
+        match self {
             Self::NotLoggedIn(p) => {
                 write!(f, "not logged in to {}; run /login", p.display_name())
             },
@@ -58,28 +58,13 @@ impl fmt::Display for Failure {
             Self::Unsupported(p) => {
                 write!(f, "the stored {} credential cannot be used here; run /login", p.display_name())
             },
-            Self::Flow(ref message) => f.write_str(message),
-            Self::Store(ref message) => write!(f, "cannot save credentials: {message}"),
+            Self::Flow(message) => f.write_str(message),
+            Self::Store(message) => write!(f, "cannot save credentials: {message}"),
         }
     }
 }
 
-impl error::Error for Failure {
-    #[inline]
-    fn cause(&self) -> Option<&dyn error::Error> {
-        None
-    }
-
-    #[inline]
-    fn description(&self) -> &'static str {
-        "a request could not be authorised"
-    }
-
-    #[inline]
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
+impl error::Error for Failure {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RequestAuth {
@@ -99,14 +84,39 @@ pub struct Auth {
     base_url: String,
     github: Github,
     http: reqwest::Client,
+    protocol: Protocol,
     provider: Provider,
     store: Arc<CredentialStore>,
 }
 
 impl Auth {
+    /// The authorisation for one model: its provider, its protocol, and where that protocol
+    /// lives on the provider.
+    #[must_use]
+    #[inline]
+    pub fn for_model(spec: &ModelSpec, store: Arc<CredentialStore>) -> Self {
+        let protocol = spec.protocol();
+        Self::new(spec.provider.as_ref().clone(), protocol, store).with_base_url(spec.provider.base_url_for(protocol))
+    }
+
+    #[must_use]
     #[inline]
     pub fn for_provider(provider: Provider, store: Arc<CredentialStore>) -> Self {
-        Self::new(provider, store)
+        let protocol = provider.protocol;
+        Self::new(provider, protocol, store)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn new(provider: Provider, protocol: Protocol, store: Arc<CredentialStore>) -> Self {
+        Self {
+            base_url: provider.base_url_for(protocol).to_owned(),
+            provider,
+            protocol,
+            store,
+            http: http_client(),
+            github: Github::new(Endpoints::github()),
+        }
     }
 
     #[inline]
@@ -117,17 +127,6 @@ impl Auth {
     /// Fails if the request cannot be authorised or sent, or the API rejects it.
     pub async fn get(&self, path: &str, extra_headers: &[(&str, &str)]) -> Result<Response, ClientError> {
         self.send::<()>(Method::GET, path, extra_headers, &[], None).await
-    }
-
-    #[inline]
-    pub fn new(provider: Provider, store: Arc<CredentialStore>) -> Self {
-        Self {
-            provider,
-            base_url: provider.base_url(provider.protocol).to_owned(),
-            store,
-            http: http_client(),
-            github: Github::new(Endpoints::github()),
-        }
     }
 
     #[inline]
@@ -152,27 +151,27 @@ impl Auth {
     /// Renews the Copilot token, one caller at a time, and saves it.
     async fn refresh_copilot(&self) -> Result<String, Failure> {
         let _guard = self.store.refresh_lock().lock().await;
-        let refresh = match self.store.read(Provider::Copilot) {
+        let refresh = match self.store.read(&self.provider) {
             Some(Credential::Oauth { access, expires, .. }) if !copilot::expires_soon(expires) => {
                 return Ok(access);
             },
             Some(Credential::Oauth { refresh, .. }) => refresh,
-            _ => return Err(Failure::NotLoggedIn(Provider::Copilot)),
+            _ => return Err(Failure::NotLoggedIn(self.provider.clone())),
         };
         let credential =
             self.github.exchange_token(&refresh).await.map_err(|e| Failure::Flow(format!("{e}; run /login")))?;
         let Credential::Oauth { ref access, .. } = credential else {
-            return Err(Failure::Unsupported(Provider::Copilot));
+            return Err(Failure::Unsupported(self.provider.clone()));
         };
         let token = access.clone();
-        self.store.write(Provider::Copilot, credential).map_err(|e| Failure::Store(e.to_string()))?;
+        self.store.write(&self.provider, credential).map_err(|e| Failure::Store(e.to_string()))?;
         Ok(token)
     }
 
     async fn resolve(&self, messages: &[Message]) -> Result<RequestAuth, Failure> {
-        let provider = self.provider;
+        let provider = &self.provider;
         let method = provider.login_method();
-        match self.store.source(provider).ok_or(Failure::NotLoggedIn(provider))? {
+        match self.store.source(provider).ok_or_else(|| Failure::NotLoggedIn(provider.clone()))? {
             Source::Local => Ok(RequestAuth::token("ollama")),
             Source::Environment(key) => Ok(RequestAuth::token(key)),
             Source::Stored(Credential::ApiKey { key }) if method == LoginMethod::ApiKey => Ok(RequestAuth::token(key)),
@@ -184,7 +183,7 @@ impl Auth {
                     headers: copilot::headers(messages),
                 })
             },
-            Source::Stored(_) => Err(Failure::Unsupported(provider)),
+            Source::Stored(_) => Err(Failure::Unsupported(provider.clone())),
         }
     }
 
@@ -206,12 +205,15 @@ impl Auth {
         if let Some(payload) = body {
             request = request.json(payload);
         }
-        request = match AuthHeader::from_protocol(self.provider.protocol) {
+        request = match self.provider.auth_header(self.protocol) {
             AuthHeader::Bearer => request.bearer_auth(&auth.token),
             AuthHeader::CustomHeader(header) => request.header(header, &auth.token),
         };
         for &(name, ref value) in &auth.headers {
             request = request.header(name, value);
+        }
+        for (name, value) in &self.provider.headers {
+            request = request.header(name.as_str(), value.as_str());
         }
         for &(name, value) in extra_headers {
             request = request.header(name, value);
@@ -219,7 +221,7 @@ impl Auth {
 
         let response = request.send().await?;
         if response.status() == StatusCode::UNAUTHORIZED {
-            return Err(Failure::Rejected(self.provider).into());
+            return Err(Failure::Rejected(self.provider.clone()).into());
         }
         if matches!(response.status(), StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY) {
             let detail = response.text().await.unwrap_or_default();
@@ -272,7 +274,7 @@ mod tests {
     }
 
     fn auth(provider: Provider, protocol: Protocol, store: Arc<CredentialStore>) -> Auth {
-        Auth::new(provider, store)
+        Auth::new(provider, protocol, store)
     }
 
     async fn post(auth: &Auth, server: &MockServer, messages: &[Message]) -> Result<Response, ClientError> {
@@ -286,38 +288,42 @@ mod tests {
 
     #[tokio::test]
     async fn ollama_needs_nothing() {
-        let auth = auth(Provider::Ollama, Protocol::OpenAi, store());
+        let auth = auth(Provider::builtin("ollama").unwrap(), Protocol::OpenAi, store());
         assert_eq!(auth.resolve(&[]).await.unwrap().token, "ollama");
     }
 
     #[tokio::test]
     async fn a_stored_key_is_used_and_beats_the_environment() {
         let store = Arc::new(CredentialStore::in_memory().with_env("OPENAI_API_KEY", "sk-env"));
-        let auth = auth(Provider::OpenAi, Protocol::OpenAi, Arc::clone(&store));
+        let auth = auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, Arc::clone(&store));
         assert_eq!(auth.resolve(&[]).await.unwrap().token, "sk-env");
-        store.write(Provider::OpenAi, key("sk-stored")).unwrap();
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-stored")).unwrap();
         assert_eq!(auth.resolve(&[]).await.unwrap().token, "sk-stored");
     }
 
     #[tokio::test]
     async fn without_a_credential_the_error_points_at_login() {
-        let err = auth(Provider::Anthropic, Protocol::Anthropic, store()).resolve(&[]).await.unwrap_err();
-        assert_eq!(err, Failure::NotLoggedIn(Provider::Anthropic));
+        let err =
+            auth(Provider::builtin("anthropic").unwrap(), Protocol::Anthropic, store()).resolve(&[]).await.unwrap_err();
+        assert_eq!(err, Failure::NotLoggedIn(Provider::builtin("anthropic").unwrap()));
         assert_eq!(err.to_string(), "not logged in to Anthropic; run /login");
     }
 
     #[tokio::test]
     async fn a_credential_of_the_wrong_kind_is_unsupported() {
         let store = store();
-        store.write(Provider::Copilot, key("sk")).unwrap();
-        store.write(Provider::OpenAi, oauth("a", 0)).unwrap();
+        store.write(&Provider::builtin("github-copilot").unwrap(), key("sk")).unwrap();
+        store.write(&Provider::builtin("openai").unwrap(), oauth("a", 0)).unwrap();
         assert_eq!(
-            auth(Provider::Copilot, Protocol::OpenAi, Arc::clone(&store)).resolve(&[]).await.unwrap_err(),
-            Failure::Unsupported(Provider::Copilot)
+            auth(Provider::builtin("github-copilot").unwrap(), Protocol::OpenAi, Arc::clone(&store))
+                .resolve(&[])
+                .await
+                .unwrap_err(),
+            Failure::Unsupported(Provider::builtin("github-copilot").unwrap())
         );
         assert_eq!(
-            auth(Provider::OpenAi, Protocol::OpenAi, store).resolve(&[]).await.unwrap_err(),
-            Failure::Unsupported(Provider::OpenAi)
+            auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store).resolve(&[]).await.unwrap_err(),
+            Failure::Unsupported(Provider::builtin("openai").unwrap())
         );
     }
 
@@ -325,8 +331,11 @@ mod tests {
     async fn a_valid_copilot_token_is_used_as_is_with_its_headers_and_base_url() {
         let store = store();
         let token = "tid=1;exp=2;proxy-ep=proxy.business.githubcopilot.com;x=y";
-        store.write(Provider::Copilot, oauth(token, now_ms() + 3_600_000)).unwrap();
-        let resolved = auth(Provider::Copilot, Protocol::OpenAi, store).resolve(&[Message::user("hi")]).await.unwrap();
+        store.write(&Provider::builtin("github-copilot").unwrap(), oauth(token, now_ms() + 3_600_000)).unwrap();
+        let resolved = auth(Provider::builtin("github-copilot").unwrap(), Protocol::OpenAi, store)
+            .resolve(&[Message::user("hi")])
+            .await
+            .unwrap();
         assert_eq!(resolved.token, token);
         assert_eq!(resolved.base_url.as_deref(), Some("https://api.business.githubcopilot.com"));
         assert!(resolved.headers.contains(&("X-Initiator", "user".to_owned())));
@@ -343,12 +352,15 @@ mod tests {
         )])
         .await;
         let store = store();
-        store.write(Provider::Copilot, oauth("stale", now_ms() + 60_000)).unwrap();
-        let auth = auth(Provider::Copilot, Protocol::OpenAi, Arc::clone(&store)).with_endpoints(server.endpoints());
+        store.write(&Provider::builtin("github-copilot").unwrap(), oauth("stale", now_ms() + 60_000)).unwrap();
+        let auth = auth(Provider::builtin("github-copilot").unwrap(), Protocol::OpenAi, Arc::clone(&store))
+            .with_endpoints(server.endpoints());
 
         assert_eq!(auth.resolve(&[]).await.unwrap().token, "fresh");
-        assert!(matches!(store.read(Provider::Copilot), Some(Credential::Oauth { access, refresh, .. })
-            if access == "fresh" && refresh == "gh-token"));
+        assert!(
+            matches!(store.read(&Provider::builtin("github-copilot").unwrap()), Some(Credential::Oauth { access, refresh, .. })
+            if access == "fresh" && refresh == "gh-token")
+        );
         assert_eq!(server.requests()[0].header("authorization"), Some("Bearer gh-token"));
     }
 
@@ -363,8 +375,9 @@ mod tests {
         )])
         .await;
         let store = store();
-        store.write(Provider::Copilot, oauth("stale", 0)).unwrap();
-        let auth = auth(Provider::Copilot, Protocol::OpenAi, store).with_endpoints(server.endpoints());
+        store.write(&Provider::builtin("github-copilot").unwrap(), oauth("stale", 0)).unwrap();
+        let auth = auth(Provider::builtin("github-copilot").unwrap(), Protocol::OpenAi, store)
+            .with_endpoints(server.endpoints());
 
         let (a, b, c) = tokio::join!(auth.resolve(&[]), auth.resolve(&[]), auth.resolve(&[]));
         assert!(a.unwrap().token == "fresh" && b.unwrap().token == "fresh" && c.unwrap().token == "fresh");
@@ -375,8 +388,9 @@ mod tests {
     async fn a_failed_refresh_asks_for_a_new_login() {
         let server = MockServer::start(vec![("/copilot_internal/v2/token", vec![(401, "{}".into())])]).await;
         let store = store();
-        store.write(Provider::Copilot, oauth("stale", 0)).unwrap();
-        let auth = auth(Provider::Copilot, Protocol::OpenAi, store).with_endpoints(server.endpoints());
+        store.write(&Provider::builtin("github-copilot").unwrap(), oauth("stale", 0)).unwrap();
+        let auth = auth(Provider::builtin("github-copilot").unwrap(), Protocol::OpenAi, store)
+            .with_endpoints(server.endpoints());
         let err = auth.resolve(&[]).await.unwrap_err();
         assert!(err.to_string().ends_with("run /login"), "{err}");
     }
@@ -385,8 +399,8 @@ mod tests {
     async fn openai_style_requests_carry_a_bearer_token_and_the_extra_headers() {
         let server = ok_server().await;
         let store = store();
-        store.write(Provider::OpenAi, key("sk-1")).unwrap();
-        post(&auth(Provider::OpenAi, Protocol::OpenAi, store), &server, &[]).await.unwrap();
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-1")).unwrap();
+        post(&auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store), &server, &[]).await.unwrap();
 
         let request = &server.requests()[0];
         assert_eq!(request.header("authorization"), Some("Bearer sk-1"));
@@ -398,8 +412,8 @@ mod tests {
     async fn anthropic_style_requests_use_x_api_key() {
         let server = ok_server().await;
         let store = store();
-        store.write(Provider::Anthropic, key("sk-ant")).unwrap();
-        post(&auth(Provider::Anthropic, Protocol::Anthropic, store), &server, &[]).await.unwrap();
+        store.write(&Provider::builtin("anthropic").unwrap(), key("sk-ant")).unwrap();
+        post(&auth(Provider::builtin("anthropic").unwrap(), Protocol::Anthropic, store), &server, &[]).await.unwrap();
 
         let request = &server.requests()[0];
         assert_eq!(request.header("x-api-key"), Some("sk-ant"));
@@ -410,8 +424,14 @@ mod tests {
     async fn copilot_requests_are_bearer_even_over_the_anthropic_protocol_and_carry_copilot_headers() {
         let server = ok_server().await;
         let store = store();
-        store.write(Provider::Copilot, oauth("copilot-tok", now_ms() + 3_600_000)).unwrap();
-        post(&auth(Provider::Copilot, Protocol::Anthropic, store), &server, &[Message::user("hi")]).await.unwrap();
+        store.write(&Provider::builtin("github-copilot").unwrap(), oauth("copilot-tok", now_ms() + 3_600_000)).unwrap();
+        post(
+            &auth(Provider::builtin("github-copilot").unwrap(), Protocol::Anthropic, store),
+            &server,
+            &[Message::user("hi")],
+        )
+        .await
+        .unwrap();
 
         let request = &server.requests()[0];
         assert_eq!(request.header("authorization"), Some("Bearer copilot-tok"));
@@ -424,8 +444,8 @@ mod tests {
     async fn get_requests_are_authorized_without_a_body() {
         let server = MockServer::start(vec![("/models", vec![(200, "{}".into())])]).await;
         let store = store();
-        store.write(Provider::OpenAi, key("sk-1")).unwrap();
-        let auth = auth(Provider::OpenAi, Protocol::OpenAi, store).with_base_url(&server.url);
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-1")).unwrap();
+        let auth = auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store).with_base_url(&server.url);
         auth.get("/models", &[("x-extra", "1")]).await.unwrap();
 
         let request = &server.requests()[0];
@@ -439,23 +459,28 @@ mod tests {
     async fn a_rejected_credential_is_reported_as_a_login_problem() {
         let server = MockServer::start(vec![("/chat/completions", vec![(401, "{}".into())])]).await;
         let store = store();
-        store.write(Provider::OpenAi, key("sk-bad")).unwrap();
-        let err = post(&auth(Provider::OpenAi, Protocol::OpenAi, store), &server, &[]).await.unwrap_err();
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-bad")).unwrap();
+        let err =
+            post(&auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store), &server, &[]).await.unwrap_err();
         assert_eq!(err.to_string(), "not logged in to OpenAI (the credentials were rejected); run /login");
     }
 
     #[tokio::test]
     async fn other_http_errors_stay_http_errors() {
         let server = MockServer::start(vec![("/chat/completions", vec![(500, "{}".into())])]).await;
-        let err = post(&auth(Provider::Ollama, Protocol::OpenAi, store()), &server, &[]).await.unwrap_err();
+        let err = post(&auth(Provider::builtin("ollama").unwrap(), Protocol::OpenAi, store()), &server, &[])
+            .await
+            .unwrap_err();
         assert!(matches!(err, ClientError::Http(_)), "{err}");
     }
 
     #[tokio::test]
     async fn a_missing_credential_fails_before_any_request_is_sent() {
         let server = ok_server().await;
-        let err = post(&auth(Provider::OpenAi, Protocol::OpenAi, store()), &server, &[]).await.unwrap_err();
-        assert!(matches!(err, ClientError::Auth(Failure::NotLoggedIn(Provider::OpenAi))), "{err}");
+        let err = post(&auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store()), &server, &[])
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ClientError::Auth(Failure::NotLoggedIn(ref p)) if p.id == "openai"), "{err}");
         assert!(server.requests().is_empty());
     }
 }
