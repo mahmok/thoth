@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The built-in providers, in the order the menus show them.
-pub const BUILTIN_IDS: [&str; 5] = ["ollama", "openai", "anthropic", "github-copilot", "google"];
+pub const BUILTIN_IDS: [&str; 6] = ["ollama", "openai", "anthropic", "github-copilot", "google", "deepseek"];
 
 /// The built-in providers that need a login, in the order the menus show them.
-pub const LOGIN_IDS: [&str; 4] = ["github-copilot", "openai", "anthropic", "google"];
+pub const LOGIN_IDS: [&str; 5] = ["github-copilot", "openai", "anthropic", "google", "deepseek"];
 
 /// One provider of models: a built-in or a gateway the user configured.
 ///
@@ -108,6 +108,10 @@ impl Provider {
             "openai" => {
                 Self::new("openai", "OpenAI", LoginMethod::ApiKey, Protocol::Responses, "https://api.openai.com/v1")
                     .with_env_var(Some("OPENAI_API_KEY"))
+            },
+            "deepseek" => {
+                Self::new("deepseek", "DeepSeek", LoginMethod::ApiKey, Protocol::OpenAi, "https://api.deepseek.com")
+                    .with_env_var(Some("DEEPSEEK_API_KEY"))
             },
             "anthropic" => Self::new(
                 "anthropic",
