@@ -274,11 +274,8 @@ mod tests {
     }
 
     #[test]
-    fn the_footer_lists_every_general_command() {
-        assert_eq!(
-            hints(Context::Always),
-            "Enter: send | Esc: cancel | /: commands | @: files | drag: select & copy | click card: expand | \u{2191}\u{2193}/PgUp/PgDn: scroll | CTRL+D: quit"
-        );
+    fn the_footer_shows_the_condensed_hints() {
+        assert_eq!(hints(Context::Always), "/: commands | @: files | Esc: cancel | CTRL+D: quit");
     }
 
     #[test]

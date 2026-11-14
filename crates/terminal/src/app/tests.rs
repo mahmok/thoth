@@ -11,6 +11,7 @@ use thoth_core::llm::client::chat::Usage;
 use thoth_core::llm::provider::Provider;
 use thoth_core::test::scripted::Scripted;
 
+use crate::keymap;
 use crate::testing::{HEIGHT, Harness};
 use crate::theme;
 
@@ -215,7 +216,8 @@ fn unbound_keys_are_typed_into_the_prompt() {
 fn the_hints_line_comes_from_the_keymap() {
     let mut h = Harness::new();
     let screen = h.screen();
-    assert!(screen.contains("Enter: send") && screen.contains("Esc: cancel"), "{screen}");
+    let expected = keymap::hints(keymap::Context::Always);
+    assert!(screen.contains(&expected), "{screen}");
 }
 
 #[test]
