@@ -4,7 +4,8 @@ mod host;
 use crate::command::{Choices, Command};
 use thoth_core::builtin::files::Suggestions;
 
-pub use host::{Catalog, Outcome, PickerHost, PickerKey, PromptText};
+pub use crate::keymap::PickerKey;
+pub use host::{Catalog, Outcome, PickerHost, PromptText};
 
 /// Rows a picker shows at once.
 pub const VISIBLE_ROWS: usize = 8;
