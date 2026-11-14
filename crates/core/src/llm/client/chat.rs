@@ -4,28 +4,6 @@ use serde::Deserializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Deserialize)]
-/// A chat completion reply.
-pub struct CompletionResponse {
-    pub choices: Vec<Choice>,
-    pub created: u64,
-    pub id: String,
-    pub model: String,
-    pub object: String,
-    #[serde(default)]
-    pub system_fingerprint: Option<String>,
-    #[serde(default)]
-    pub usage: Option<Usage>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-/// One choice of a reply.
-pub struct Choice {
-    pub finish_reason: FinishReason,
-    pub index: u32,
-    pub message: Message,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 /// A chat message.
 pub struct Message {
@@ -57,7 +35,36 @@ pub enum Reasoning {
     Responses(Value),
 }
 
+impl Reasoning {
+    /// The kept value, if this reasoning came from Anthropic.
+    #[must_use]
+    #[inline]
+    pub const fn anthropic(&self) -> Option<&Value> {
+        match *self {
+            Self::Anthropic(ref value) => Some(value),
+            Self::Google(_) | Self::Responses(_) => None,
+        }
+    }
+
+    /// The kept value, if this reasoning came from the Responses API.
+    #[must_use]
+    #[inline]
+    pub const fn responses(&self) -> Option<&Value> {
+        match *self {
+            Self::Responses(ref value) => Some(value),
+            Self::Anthropic(_) | Self::Google(_) => None,
+        }
+    }
+}
+
 impl Message {
+    /// The text of the message, unless it is empty.
+    #[must_use]
+    #[inline]
+    pub fn text(&self) -> Option<&str> {
+        self.content.as_deref().filter(|text| !text.is_empty())
+    }
+
     #[must_use]
     #[inline]
     pub const fn assistant(content: Option<String>, tool_calls: Vec<ToolCall>) -> Self {
@@ -136,19 +143,6 @@ pub enum Role {
     System,
     Tool,
     User,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-/// Why a reply ended.
-pub enum FinishReason {
-    ContentFilter,
-    FunctionCall,
-    Length,
-    Stop,
-    ToolCalls,
-    #[serde(other)]
-    Unknown,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -263,29 +257,15 @@ struct PartialCall {
 }
 
 #[derive(Default, Debug)]
-/// Assembles Tool calls from deltas.
-pub struct ToolCallAssembler {
+/// Assembles Tool calls from streamed pieces.
+pub struct ToolCallBuffer {
     calls: BTreeMap<usize, PartialCall>,
 }
 
-impl ToolCallAssembler {
-    #[must_use]
+impl ToolCallBuffer {
     #[inline]
-    /// The assembled Tool calls, in order.
-    pub fn finish(self) -> Vec<ToolCall> {
-        self.calls
-            .into_iter()
-            .map(|(index, call)| ToolCall {
-                id: call.id.unwrap_or_else(|| format!("call_{index}")),
-                kind: ToolCallKind::Function,
-                function: FunctionCall { name: call.name, arguments: call.arguments },
-            })
-            .collect()
-    }
-
-    #[inline]
-    /// Adds a streamed piece to the Tool call it belongs to.
-    pub fn push(&mut self, delta: ToolCallDelta) {
+    /// Adds a streamed piece of a Tool call, appending each field as it arrives.
+    pub fn append(&mut self, delta: ToolCallDelta) {
         let call = self.calls.entry(delta.index).or_default();
         if let Some(id) = delta.id.filter(|id| !id.is_empty()) {
             call.id = Some(id);
@@ -301,6 +281,37 @@ impl ToolCallAssembler {
             Some(Value::Null) | None => {},
             Some(object) => call.arguments = object.to_string(),
         }
+    }
+
+    #[inline]
+    /// Starts (or replaces) a Tool call that arrived whole, such as at a content block start.
+    pub fn start(&mut self, index: usize, id: &str, name: &str, arguments: &str) {
+        drop(self.calls.insert(
+            index,
+            PartialCall { arguments: arguments.to_owned(), id: Some(id.to_owned()), name: name.to_owned() },
+        ));
+    }
+
+    #[inline]
+    /// Appends a fragment to the arguments of a started Tool call.
+    pub fn append_arguments(&mut self, index: usize, fragment: &str) {
+        if let Some(call) = self.calls.get_mut(&index) {
+            call.arguments.push_str(fragment);
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    /// The assembled Tool calls, in order.
+    pub fn finish(self) -> Vec<ToolCall> {
+        self.calls
+            .into_iter()
+            .map(|(index, call)| ToolCall {
+                id: call.id.unwrap_or_else(|| format!("call_{index}")),
+                kind: ToolCallKind::Function,
+                function: FunctionCall { name: call.name, arguments: call.arguments },
+            })
+            .collect()
     }
 }
 
@@ -335,31 +346,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_ollama_chat_completion() {
-        let body = r#"{"id":"chatcmpl-710","object":"chat.completion","created":1792440437,
-            "model":"llama3.2:3b","system_fingerprint":"fp_ollama",
-            "choices":[{"index":0,"message":{"role":"assistant","content":"How are you today?"},"finish_reason":"stop"}],
-            "usage":{"prompt_tokens":26,"completion_tokens":6,"total_tokens":32}}"#;
-        let res: CompletionResponse = serde_json::from_str(body).unwrap();
-        assert_eq!(res.choices[0].message.role, Role::Assistant);
-        assert_eq!(res.choices[0].finish_reason, FinishReason::Stop);
-        assert_eq!(res.choices[0].message.content.as_deref(), Some("How are you today?"));
-        assert_eq!(res.usage.unwrap().total_tokens, 32);
-    }
-
-    #[test]
-    fn parses_tool_calls() {
-        let body = r#"{"id":"x","object":"chat.completion","created":1,"model":"m",
-            "choices":[{"index":0,"message":{"role":"assistant","content":null,
-              "tool_calls":[{"id":"c1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a\"}"}}]},
-              "finish_reason":"tool_calls"}]}"#;
-        let res: CompletionResponse = serde_json::from_str(body).unwrap();
-        let choice = &res.choices[0];
-        assert_eq!(choice.finish_reason, FinishReason::ToolCalls);
-        assert!(choice.message.content.is_none());
-        let function = &choice.message.tool_calls[0].function;
-        assert_eq!(function.name, "read_file");
-        assert_eq!(function.arguments, r#"{"path":"a"}"#);
+    fn parses_a_message() {
+        let body = r#"{"role":"assistant","content":"How are you today?"}"#;
+        let message: Message = serde_json::from_str(body).unwrap();
+        assert_eq!(message.role, Role::Assistant);
+        assert_eq!(message.content.as_deref(), Some("How are you today?"));
     }
 }
 
@@ -395,16 +386,16 @@ mod tool_stream_tests {
     use super::*;
 
     fn assemble(chunks: &[&str]) -> Vec<ToolCall> {
-        let mut assembler = ToolCallAssembler::default();
+        let mut buffer = ToolCallBuffer::default();
         for body in chunks {
             let chunk: CompletionChunk = serde_json::from_str(body).unwrap();
             for choice in chunk.choices {
                 for delta in choice.delta.tool_calls {
-                    assembler.push(delta);
+                    buffer.append(delta);
                 }
             }
         }
-        assembler.finish()
+        buffer.finish()
     }
 
     #[test]

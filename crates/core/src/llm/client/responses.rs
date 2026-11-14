@@ -1,4 +1,4 @@
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeSet;
 
 use reqwest::Response;
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,9 @@ use serde_json::{Value, json};
 use crate::auth::Auth;
 use crate::llm::thinking::Thinking;
 
-use super::EventStream;
-use super::chat::{FunctionCall, Message, Reasoning, Role, ToolCall, ToolCallKind, Usage};
+use super::body::Common;
+use super::chat::{Message, Reasoning, ToolCallBuffer, Usage};
+use super::{lowering, stream};
 
 use super::{
     ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, Negotiation, StreamedCompletion, ToolChoice,
@@ -41,8 +42,11 @@ impl Client {
     ) -> Body<'request> {
         let field = reasoning.field();
         Body {
-            model: &self.config.model,
-            stream: true,
+            common: Common::streaming(
+                &self.config.model,
+                tools.iter().map(function_tool).collect(),
+                choice.forbids(tools).then_some("none"),
+            ),
             store: false,
             prompt_cache_key: &self.cache_key,
             input: &prompt.input,
@@ -51,8 +55,6 @@ impl Client {
             include: field.is_some().then_some(["reasoning.encrypted_content"]),
             reasoning: field,
             instructions: prompt.instructions.as_deref(),
-            tools: tools.iter().map(function_tool).collect(),
-            tool_choice: choice.forbids(tools).then_some("none"),
         }
     }
 
@@ -109,21 +111,17 @@ impl<'request> Prompt<'request> {
 /// The `/responses` request. It borrows the history, so sending it copies nothing first.
 #[derive(Serialize)]
 struct Body<'request> {
+    #[serde(flatten)]
+    common: Common<'request, WireTool<'request>, &'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     include: Option<[&'static str; 1]>,
     input: &'request [Input<'request>],
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<&'request str>,
-    model: &'request str,
     prompt_cache_key: &'request str,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<Value>,
     store: bool,
-    stream: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'static str>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<WireTool<'request>>,
 }
 
 #[derive(Serialize)]
@@ -166,18 +164,12 @@ impl LlmClient for Client {
     async fn create_completion_stream<F>(
         &self,
         request: CreateCompletionRequest<'_>,
-        mut on_delta: F,
+        on_delta: F,
     ) -> Result<StreamedCompletion, ClientError>
     where
         F: FnMut(Delta<'_>) + Send,
     {
-        let response = self.post(&request).await?;
-        let mut events = EventStream::new(response);
-        let mut stream = StreamState::default();
-        while let Some(data) = events.next().await? {
-            stream.apply(&data, &mut on_delta)?;
-        }
-        stream.finish().fail_if_cut_off_empty()
+        stream::drive(self.post(&request), StreamState::default(), on_delta).await
     }
 }
 
@@ -321,17 +313,10 @@ struct FailedError {
     message: String,
 }
 
-/// A Tool call being assembled.
-struct PartialCall {
-    arguments: String,
-    id: String,
-    name: String,
-}
-
 #[derive(Default)]
 /// What a stream has produced so far.
 struct StreamState {
-    calls: BTreeMap<usize, PartialCall>,
+    calls: ToolCallBuffer,
     cut_off: Option<String>,
     reasoning: Vec<Reasoning>,
     /// Output items whose text already arrived as deltas.
@@ -340,12 +325,11 @@ struct StreamState {
     usage: Option<Usage>,
 }
 
-impl StreamState {
-    /// Applies one streamed event to the state, reporting text and reasoning as it arrives.
+impl stream::Adapter for StreamState {
     fn apply(&mut self, data: &str, on_delta: &mut impl FnMut(Delta<'_>)) -> Result<(), ClientError> {
         match serde_json::from_str::<Event>(data)? {
             Event::ItemAdded { output_index, item: Item::FunctionCall { call_id, name, arguments } } => {
-                drop(self.calls.insert(output_index, PartialCall { id: call_id, name, arguments }));
+                self.calls.start(output_index, &call_id, &name, &arguments);
             },
             Event::ItemDone { output_index, item } => self.item_done(output_index, item, on_delta),
             Event::ReasoningDelta { delta } => {
@@ -364,11 +348,7 @@ impl StreamState {
                     self.text.push_str(&delta);
                 }
             },
-            Event::ArgumentsDelta { output_index, delta } => {
-                if let Some(call) = self.calls.get_mut(&output_index) {
-                    call.arguments.push_str(&delta);
-                }
-            },
+            Event::ArgumentsDelta { output_index, delta } => self.calls.append_arguments(output_index, &delta),
             Event::Finished { response } => {
                 if response.status.as_deref() == Some("incomplete") {
                     let reason = response.incomplete_details.map(|details| details.reason).unwrap_or_default();
@@ -395,26 +375,18 @@ impl StreamState {
         Ok(())
     }
 
-    /// The completion the stream produced.
     fn finish(self) -> StreamedCompletion {
-        let tool_calls = self
-            .calls
-            .into_values()
-            .map(|call| ToolCall {
-                id: call.id,
-                kind: ToolCallKind::Function,
-                function: FunctionCall { name: call.name, arguments: call.arguments },
-            })
-            .collect();
         StreamedCompletion {
             text: self.text,
             usage: self.usage,
-            tool_calls,
+            tool_calls: self.calls.finish(),
             reasoning: self.reasoning,
             cut_off: self.cut_off,
         }
     }
+}
 
+impl StreamState {
     /// A finished output item. Function calls carry their complete arguments, so they
     /// win over the streamed deltas. Messages are a negotiation for servers that send no
     /// text deltas (without it the reply would be empty and the turn dropped).
@@ -426,7 +398,7 @@ impl StreamState {
         }
         match serde_json::from_value::<Item>(item) {
             Ok(Item::FunctionCall { call_id, name, arguments }) => {
-                drop(self.calls.insert(output_index, PartialCall { id: call_id, name, arguments }));
+                self.calls.start(output_index, &call_id, &name, &arguments);
             },
             Ok(Item::Message { content }) if !self.streamed.contains(&output_index) => {
                 for part in content {
@@ -447,49 +419,59 @@ fn function_tool(spec: &ToolSpec) -> WireTool<'_> {
     WireTool { kind: "function", name: &spec.name, description: &spec.description, parameters: &spec.parameters }
 }
 
-/// Converts messages to instructions and input items.
-fn translate(messages: &[Message]) -> (Option<String>, Vec<Input<'_>>) {
-    let mut instructions: Vec<&str> = Vec::new();
-    let mut input: Vec<Input<'_>> = Vec::new();
+/// The Responses view of a conversation: instructions and input items.
+#[derive(Default)]
+struct Lowering<'request> {
+    input: Vec<Input<'request>>,
+    instructions: Option<String>,
+}
 
-    for message in messages {
-        let text = message.content.as_deref().filter(|t| !t.is_empty());
-        match message.role {
-            Role::System => instructions.extend(text),
-            Role::User => {
-                if let Some(content) = text {
-                    input.push(Input::Message { role: "user", content });
-                }
-            },
-            Role::Assistant => {
-                input.extend(message.reasoning.iter().filter_map(|kept| match *kept {
-                    Reasoning::Responses(ref item) => Some(Input::Kept(item)),
-                    Reasoning::Anthropic(_) | Reasoning::Google(_) => None,
-                }));
-                if let Some(content) = text {
-                    input.push(Input::Message { role: "assistant", content });
-                }
-                input.extend(message.tool_calls.iter().map(|call| Input::Call {
-                    kind: "function_call",
-                    call_id: &call.id,
-                    name: &call.function.name,
-                    arguments: &call.function.arguments,
-                }));
-            },
-            Role::Tool => input.push(Input::Output {
-                kind: "function_call_output",
-                call_id: message.tool_call_id.as_deref(),
-                output: message.content.as_deref().unwrap_or_default(),
-            }),
-        }
+impl<'request> lowering::Dialect<'request> for Lowering<'request> {
+    type Output = (Option<String>, Vec<Input<'request>>);
+
+    fn system(&mut self, text: &str) {
+        self.instructions = Some(text.to_owned());
     }
 
-    let combined = (!instructions.is_empty()).then(|| instructions.join("\n\n"));
-    (combined, input)
+    fn user(&mut self, text: &'request str) {
+        self.input.push(Input::Message { role: "user", content: text });
+    }
+
+    fn assistant(&mut self, message: &'request Message) {
+        self.input.extend(message.reasoning.iter().filter_map(Reasoning::responses).map(Input::Kept));
+        if let Some(content) = message.text() {
+            self.input.push(Input::Message { role: "assistant", content });
+        }
+        self.input.extend(message.tool_calls.iter().map(|call| Input::Call {
+            kind: "function_call",
+            call_id: &call.id,
+            name: &call.function.name,
+            arguments: &call.function.arguments,
+        }));
+    }
+
+    fn tool_result(&mut self, message: &'request Message) {
+        self.input.push(Input::Output {
+            kind: "function_call_output",
+            call_id: message.tool_call_id.as_deref(),
+            output: message.content.as_deref().unwrap_or_default(),
+        });
+    }
+
+    fn finish(self) -> Self::Output {
+        (self.instructions, self.input)
+    }
+}
+
+/// Converts messages to instructions and input items.
+fn translate(messages: &[Message]) -> (Option<String>, Vec<Input<'_>>) {
+    lowering::lower(messages, Lowering::default())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::chat::{FunctionCall, ToolCall, ToolCallKind};
+    use super::super::stream::Adapter as _;
     use super::*;
 
     fn call(id: &str, arguments: &str) -> ToolCall {
