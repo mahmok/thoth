@@ -6,7 +6,9 @@ pub mod store;
 pub mod testing;
 pub mod worker;
 
-use store::{InMemory as InMemoryModelsStore, ModelEntry, Models as ModelsStore, StoredModel};
+use alloc::sync::Arc;
+
+use store::Models as ModelsStore;
 
 use crate::llm::provider::ModelSpec;
 
@@ -14,11 +16,13 @@ use crate::llm::provider::ModelSpec;
 /// Every stored model with a display name, for the model picker.
 pub fn choices(store: &dyn ModelsStore) -> Vec<(ModelSpec, String)> {
     store
-        .read_all()
+        .providers()
         .into_iter()
-        .flat_map(|(provider, entry)| {
-            entry.models.into_iter().map(move |model| {
-                (ModelSpec::new(provider, model.protocol, model.id).with_context_limit(model.context_limit), model.name)
+        .flat_map(|provider| {
+            let models = provider.models.clone();
+            models.into_iter().map(move |model| {
+                let name = model.display_name().to_owned();
+                (ModelSpec::new(Arc::clone(&provider), model), name)
             })
         })
         .collect()
@@ -27,18 +31,20 @@ pub fn choices(store: &dyn ModelsStore) -> Vec<(ModelSpec, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::provider::{Protocol, Provider};
+    use crate::llm::provider::Protocol;
     use crate::test::assert_empty;
     use testing::{fixture, store_with};
 
     #[test]
     fn choices_follow_the_provider_order_and_keep_each_models_protocol() {
-        let found: Vec<(Provider, Protocol, String)> =
-            choices(fixture().as_ref()).into_iter().map(|(spec, _)| (spec.provider, spec.protocol, spec.id)).collect();
+        let found: Vec<(String, Protocol, String)> = choices(fixture().as_ref())
+            .into_iter()
+            .map(|(spec, _)| (spec.provider.id.clone(), spec.protocol(), spec.model.id))
+            .collect();
         assert_eq!(found.len(), 8);
-        assert_eq!(found[0], (Provider::Ollama, Protocol::OpenAi, "bonsai-2:2b".to_owned()));
-        assert_eq!(found[5], (Provider::Anthropic, Protocol::Anthropic, "claude-sonnet-4-5".to_owned()));
-        assert_eq!(found[6], (Provider::Copilot, Protocol::Anthropic, "claude-sonnet-4.5".to_owned()));
+        assert_eq!(found[0], ("ollama".into(), Protocol::OpenAi, "bonsai-2:2b".to_owned()));
+        assert_eq!(found[5], ("anthropic".into(), Protocol::Anthropic, "claude-sonnet-4-5".to_owned()));
+        assert_eq!(found[6], ("github-copilot".into(), Protocol::Anthropic, "claude-sonnet-4.5".to_owned()));
     }
 
     #[test]

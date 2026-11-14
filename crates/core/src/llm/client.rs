@@ -10,6 +10,8 @@ pub mod error;
 #[expect(clippy::expect_used, reason = "test support: an exhausted script should fail the test")]
 /// A scripted client for tests.
 pub mod fake;
+/// The Gemini `generateContent` client.
+pub mod gemini;
 /// Falling back to settings a model accepts.
 mod negotiation;
 pub mod openai;
@@ -54,38 +56,25 @@ pub enum ToolChoice {
 }
 
 impl ToolChoice {
-    /// Whether the request must say that no tool may be called. With no tools there is nothing
-    /// to forbid, and a server may refuse a choice then.
     pub fn forbids(self, tools: &[ToolSpec]) -> bool {
         self == Self::None && !tools.is_empty()
     }
 }
 
 #[derive(Default, Debug)]
-/// A request for a completion.
 pub struct CreateCompletionRequest<'data> {
-    /// The history to send.
     pub messages: &'data [chat::Message],
-    /// How hard it should think.
     pub thinking: Thinking,
-    /// Whether it may, must or may not call Tools.
     pub tool_choice: ToolChoice,
-    /// The Tools the model may call.
     pub tools: &'data [ToolSpec],
 }
 
 #[derive(Default, Debug)]
-/// A completion assembled from a stream.
 pub struct StreamedCompletion {
-    /// Why the reply stopped early, if it did.
     pub cut_off: Option<String>,
-    /// Reasoning blocks to send back with the reply.
     pub reasoning: Vec<chat::Reasoning>,
-    /// The reply text.
     pub text: String,
-    /// The Tool calls it asked for.
     pub tool_calls: Vec<ToolCall>,
-    /// Tokens spent, if the provider says.
     pub usage: Option<Usage>,
 }
 
@@ -99,13 +88,11 @@ impl StreamedCompletion {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A piece of a streamed reply.
 pub enum Delta<'data> {
     Reasoning(&'data str),
     Text(&'data str),
 }
 
-/// A client for one provider protocol.
 pub trait Llm {
     fn create_completion_stream<F>(
         &self,

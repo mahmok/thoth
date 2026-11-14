@@ -13,10 +13,11 @@ use crate::builtin::files::FileReferences;
 use crate::harness::{Event as HarnessEvent, Harness as CoreHarness};
 use crate::llm::client::chat::Usage;
 use crate::llm::provider::Provider;
-use crate::llm::provider::{ModelSpec, Protocol};
+use crate::llm::provider::{Model, ModelSpec, Protocol};
 use crate::llm::thinking::Thinking;
 use crate::models::refresh::Event as RefreshEvent;
 use crate::models::store::InMemory as InMemoryModelsStore;
+use crate::models::store::Models as ModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::models::testing::{fixture, store_with};
 use crate::session::view::Login as LoginView;
@@ -137,7 +138,7 @@ impl Harness {
 }
 
 fn bonsai() -> ModelSpec {
-    ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "bonsai-2:2b")
+    ModelSpec::new(Arc::new(Provider::ollama()), Model::new("bonsai-2:2b").with_protocol(Some(Protocol::OpenAi)))
 }
 
 fn device_code() -> LoginEvent {
@@ -309,7 +310,7 @@ fn a_prompt_that_looks_like_a_command_is_sent_as_typed() {
 #[test]
 fn the_device_code_is_shown_and_kept_in_the_view_while_the_login_waits() {
     let mut h = Harness::new();
-    h.harness.login(Provider::Copilot);
+    h.harness.login(Provider::copilot());
     h.worker.event(device_code());
     h.poll();
     let said = h.said_by(Speaker::Login).join("\n");
@@ -321,9 +322,9 @@ fn the_device_code_is_shown_and_kept_in_the_view_while_the_login_waits() {
 #[test]
 fn finishing_a_login_says_so_and_clears_the_login_state() {
     let mut h = Harness::new();
-    h.harness.login(Provider::Anthropic);
+    h.harness.login(Provider::anthropic());
     h.worker.event(device_code());
-    h.worker.event(LoginEvent::Done(Provider::Anthropic));
+    h.worker.event(LoginEvent::Done(Provider::anthropic()));
     h.poll();
     assert!(h.said_by(Speaker::Login).contains(&"Logged in to Anthropic.".to_owned()));
     assert_eq!(h.harness.login_view(), &LoginView::default());
@@ -332,7 +333,7 @@ fn finishing_a_login_says_so_and_clears_the_login_state() {
 #[test]
 fn a_failed_login_shows_the_error() {
     let mut h = Harness::new();
-    h.harness.login(Provider::Copilot);
+    h.harness.login(Provider::copilot());
     h.worker.event(LoginEvent::Failed("device flow failed: access_denied".into()));
     h.poll();
     assert_eq!(h.said_by(Speaker::Error), ["device flow failed: access_denied"]);
@@ -341,7 +342,7 @@ fn a_failed_login_shows_the_error() {
 #[test]
 fn an_api_key_goes_to_the_login_and_never_to_the_agent() {
     let mut h = Harness::new();
-    h.harness.login(Provider::OpenAi);
+    h.harness.login(Provider::openai());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste your OpenAI API key (input is hidden)".into() });
     h.poll();
     assert!(h.harness.login_view().awaiting_secret);
@@ -355,7 +356,7 @@ fn an_api_key_goes_to_the_login_and_never_to_the_agent() {
 #[test]
 fn cancel_ends_a_pending_login() {
     let mut h = Harness::new();
-    h.harness.login(Provider::OpenAi);
+    h.harness.login(Provider::openai());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
     h.poll();
     h.cancel();
@@ -371,7 +372,7 @@ fn cancel_ends_a_pending_login() {
 #[test]
 fn a_login_event_after_a_cancel_does_not_bring_the_key_prompt_back() {
     let mut h = Harness::new();
-    h.harness.login(Provider::OpenAi);
+    h.harness.login(Provider::openai());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
     h.cancel();
     h.poll();
@@ -383,12 +384,12 @@ fn refresh_models_starts_a_refresh_of_every_provider_and_reports_each_one() {
     let mut h = Harness::new();
     h.harness.refresh_models();
     h.poll();
-    assert_eq!(h.refresh_worker.started(), [Provider::ALL.to_vec()]);
+    assert_eq!(h.refresh_worker.started(), [Provider::builtins()]);
     assert_eq!(h.said_by(Speaker::Models), ["Refreshing models..."]);
 
-    h.refresh_worker.event(RefreshEvent::Fetched { provider: Provider::Ollama, count: 3 });
-    h.refresh_worker.event(RefreshEvent::Skipped(Provider::Copilot));
-    h.refresh_worker.event(RefreshEvent::Failed { provider: Provider::OpenAi, error: "http error".into() });
+    h.refresh_worker.event(RefreshEvent::Fetched { provider: Provider::ollama(), count: 3 });
+    h.refresh_worker.event(RefreshEvent::Skipped(Provider::copilot()));
+    h.refresh_worker.event(RefreshEvent::Failed { provider: Provider::openai(), error: "http error".into() });
     h.refresh_worker.event(RefreshEvent::Finished);
     h.poll();
     assert_eq!(
@@ -412,13 +413,13 @@ fn a_second_refresh_waits_for_the_first_and_refresh_works_while_a_turn_runs() {
 #[test]
 fn logging_in_refreshes_just_that_provider() {
     let mut h = Harness::new();
-    h.harness.login(Provider::OpenAi);
-    h.worker.event(LoginEvent::Done(Provider::OpenAi));
+    h.harness.login(Provider::openai());
+    h.worker.event(LoginEvent::Done(Provider::openai()));
     h.poll();
     assert!(h.said_by(Speaker::Login).contains(&"Logged in to OpenAI.".to_owned()));
-    assert_eq!(h.refresh_worker.started(), [vec![Provider::OpenAi]]);
+    assert_eq!(h.refresh_worker.started(), [vec![Provider::openai()]]);
 
-    h.refresh_worker.event(RefreshEvent::Fetched { provider: Provider::OpenAi, count: 18 });
+    h.refresh_worker.event(RefreshEvent::Fetched { provider: Provider::openai(), count: 18 });
     h.refresh_worker.event(RefreshEvent::Finished);
     h.poll();
     assert!(h.said_by(Speaker::Models).contains(&"OpenAI: 18 models".to_owned()));
@@ -427,7 +428,7 @@ fn logging_in_refreshes_just_that_provider() {
 #[test]
 fn a_failed_login_does_not_refresh_anything() {
     let mut h = Harness::new();
-    h.harness.login(Provider::Copilot);
+    h.harness.login(Provider::copilot());
     h.worker.event(LoginEvent::Failed("device flow failed".into()));
     h.poll();
     assert_empty(h.refresh_worker.started());
@@ -437,8 +438,8 @@ fn a_failed_login_does_not_refresh_anything() {
 fn login_works_while_a_turn_runs() {
     let mut h = Harness::new();
     h.send("hello");
-    h.harness.login(Provider::OpenAi);
-    assert_eq!(h.worker.started(), [Provider::OpenAi]);
+    h.harness.login(Provider::openai());
+    assert_eq!(h.worker.started(), [Provider::openai()]);
 }
 
 #[test]
@@ -455,7 +456,7 @@ fn the_view_follows_the_events_it_emitted() {
     h.send("hi");
     h.text("hello");
     h.done();
-    h.harness.login(Provider::Copilot);
+    h.harness.login(Provider::copilot());
     h.worker.event(device_code());
     h.poll();
     for event in &h.events {
@@ -486,7 +487,7 @@ fn the_skills_are_listed_and_expanded_when_sent() {
 #[test]
 fn setting_a_model_applies_it_and_updates_the_settings() {
     let mut h = Harness::new();
-    let llama = ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "llama3.2:3b");
+    let llama = ModelSpec::new(Arc::new(Provider::ollama()), Model::new("llama3.2:3b"));
     assert!(h.harness.models().iter().any(|entry| entry.0 == llama));
     assert_eq!(h.session().set_model(llama.clone()), Ok(()));
     assert_eq!(h.agent.model(), Some(llama));
@@ -529,7 +530,7 @@ fn model_and_clear_are_refused_while_a_turn_runs() {
     h.send("hello");
     assert_eq!(h.session().clear(), Err(Refusal::Busy));
     assert_eq!(h.agent.cleared(), 0);
-    let other = ModelSpec::new(Provider::OpenAi, Protocol::OpenAi, "gpt-4o");
+    let other = ModelSpec::new(Arc::new(Provider::openai()), Model::new("gpt-4o"));
     assert_eq!(h.session().set_model(other), Err(Refusal::Busy));
     assert_eq!(h.agent.model(), Some(bonsai()));
 }
@@ -537,7 +538,7 @@ fn model_and_clear_are_refused_while_a_turn_runs() {
 #[test]
 fn the_models_are_whatever_the_store_holds_across_providers() {
     let mut h = Harness::new();
-    let gpt = ModelSpec::new(Provider::OpenAi, Protocol::OpenAi, "gpt-4o");
+    let gpt = ModelSpec::new(Arc::new(Provider::openai()), Model::new("gpt-4o"));
     assert!(h.harness.models().iter().any(|entry| entry.0 == gpt));
     h.session().set_model(gpt.clone()).unwrap();
     assert!(h.worker.started().is_empty(), "choosing a model never starts a login");
@@ -552,24 +553,35 @@ fn an_empty_store_has_no_models() {
 
 #[test]
 fn logging_in_starts_the_provider_and_shows_it() {
-    let mut h = Harness::with_logged_in(&[Provider::OpenAi]);
-    assert_eq!(h.harness.login_state(Provider::OpenAi), LoginState::Saved);
-    assert_eq!(h.harness.login_state(Provider::Copilot), LoginState::NotLoggedIn);
-    h.harness.login(Provider::Copilot);
+    let mut h = Harness::with_logged_in(&[Provider::openai()]);
+    assert_eq!(h.harness.login_state(Provider::openai()), LoginState::Saved);
+    assert_eq!(h.harness.login_state(Provider::copilot()), LoginState::NotLoggedIn);
+    h.harness.login(Provider::copilot());
     h.poll();
-    assert_eq!(h.worker.started(), [Provider::Copilot]);
+    assert_eq!(h.worker.started(), [Provider::copilot()]);
     assert_eq!(h.said_by(Speaker::Login), ["Logging in to GitHub Copilot..."]);
     assert!(h.harness.login_view().active);
     assert!(!h.harness.login_view().awaiting_secret);
 }
 
 #[test]
+fn the_login_list_adds_custom_providers_that_need_a_key() {
+    let models = store_with(&[]);
+    let mut gateway = Provider::custom("gateway");
+    gateway.display_name = "Gateway".into();
+    models.write(&gateway).unwrap();
+    let h = Harness::with_models(models);
+    let ids: Vec<String> = h.harness.login_providers().into_iter().map(|p| p.id).collect();
+    assert_eq!(ids, ["github-copilot", "openai", "anthropic", "google", "gateway"]);
+}
+
+#[test]
 fn logout_removes_the_saved_login() {
-    let mut h = Harness::with_logged_in(&[Provider::Copilot]);
-    assert_eq!(h.harness.saved_logins(), [Provider::Copilot]);
-    h.harness.logout(Provider::Copilot);
+    let mut h = Harness::with_logged_in(&[Provider::copilot()]);
+    assert_eq!(h.harness.saved_logins(), [Provider::copilot()]);
+    h.harness.logout(Provider::copilot());
     h.poll();
-    assert_eq!(h.store.read(Provider::Copilot), None);
+    assert_eq!(h.store.read(&Provider::copilot()), None);
     assert_empty(h.harness.saved_logins());
     assert_eq!(h.said_by(Speaker::Login), ["Logged out of GitHub Copilot."]);
 }
@@ -617,7 +629,7 @@ fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
 fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
     let mut h = Harness::new();
     h.harness.start_session_with(2, Box::new(ScriptedAgent::new()));
-    h.harness.login(Provider::Copilot);
+    h.harness.login(Provider::copilot());
     h.worker.event(device_code());
     h.poll();
     assert_eq!(h.harness.login_view().device_code.as_deref(), Some("ABCD-1234"));
@@ -627,7 +639,7 @@ fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
 #[test]
 fn notices_belong_to_no_session() {
     let mut h = Harness::new();
-    h.harness.login(Provider::Copilot);
+    h.harness.login(Provider::copilot());
     let events = h.harness.poll();
     assert!(events.iter().any(|e| matches!(
         e,

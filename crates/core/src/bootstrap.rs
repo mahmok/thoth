@@ -33,7 +33,7 @@ pub async fn start() -> anyhow::Result<Harness> {
     let workspace = Workspace::from_current_dir()?;
     let skills = load_skills(&workspace)?;
     let context = AgentContext::new(workspace.root()).with_agent_files().context("Failed to load AGENTS.md files")?;
-    let builder = AgentBuilder::new(Arc::clone(&store), workspace.clone(), context, skills);
+    let builder = AgentBuilder::new(Arc::clone(&store), Arc::clone(&models), workspace.clone(), context, skills);
     let mut personas = PersonaRepository::default();
 
     personas.load().await.context("Failed to load personas")?;

@@ -15,15 +15,22 @@ use tokio::fs as tokio_fs;
 pub async fn read_markdown_with_frontmatter(path: &Path) -> io::Result<(Option<String>, String)> {
     let text = tokio_fs::read_to_string(path).await?;
 
-    if let Some(rest) = text.strip_prefix("---\n")
-        && let Some((frontmatter, after)) = rest.split_once("\n---")
-    {
-        let content = after.strip_prefix('\n').unwrap_or(after).to_owned();
+    let normalized = text.strip_prefix('\u{FEFF}').unwrap_or(&text);
 
-        return Ok((Some(frontmatter.to_owned()), content));
-    }
+    let Some(rest) = normalized.strip_prefix("---\r\n").or_else(|| normalized.strip_prefix("---\n")) else {
+        return Ok((None, text));
+    };
 
-    Ok((None, text))
+    let Some(pos) = rest.find("\n---") else {
+        return Ok((None, text));
+    };
+
+    let frontmatter = rest[..pos].strip_suffix('\r').unwrap_or(&rest[..pos]);
+
+    let after = &rest[pos + 4..];
+    let content = after.strip_prefix('\n').unwrap_or(after).to_owned();
+
+    Ok((Some(frontmatter.to_owned()), content))
 }
 
 /// Replaces the file at `path` with `bytes` all at once.

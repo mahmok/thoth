@@ -241,7 +241,7 @@ mod tests {
     use crate::llm::client::error::Failure as ClientError;
     use crate::llm::client::fake;
     use crate::llm::client::fake::Client as FakeClient;
-    use crate::llm::provider::{ModelSpec, Protocol, Provider};
+    use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use crate::test::assert_empty;
     use core::iter;
@@ -251,7 +251,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     fn spec(model: &str) -> ModelSpec {
-        ModelSpec::new(Provider::Ollama, Protocol::OpenAi, model)
+        ModelSpec::new(Arc::new(Provider::ollama()), Model::new(model))
     }
 
     fn persona(key: &str) -> Persona {
@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(plain.agent.thinking(), Thinking::Low);
 
         let mut own_persona = persona("own").with_thinking(Thinking::High);
-        own_persona.model = Some(spec("own"));
+        own_persona.model = Some(Model::reference("ollama", "own"));
         // The builder gives the Agent its Persona's own settings; inheritance must leave them alone.
         let built = agent().with_model(spec("own"));
         built.set_thinking(Thinking::High);

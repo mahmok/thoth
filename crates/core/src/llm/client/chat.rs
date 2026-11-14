@@ -51,6 +51,8 @@ pub struct Message {
 pub enum Reasoning {
     /// An Anthropic `thinking` or `redacted_thinking` block (with its signature).
     Anthropic(Value),
+    /// A Gemini part to send back as received, such as a thought and its signature.
+    Google(Value),
     /// A Responses API `reasoning` output item (with its encrypted content).
     Responses(Value),
 }

@@ -1,6 +1,6 @@
 use crate::config::dir;
 use crate::fsutil::read_markdown_with_frontmatter;
-use crate::llm::provider::ModelSpec;
+use crate::llm::provider::Model;
 use crate::llm::thinking::Thinking;
 use alloc::collections::BTreeMap;
 use core::error;
@@ -27,7 +27,7 @@ pub enum Selection {
 pub struct Persona {
     pub description: String,
     pub key: String,
-    pub model: Option<ModelSpec>,
+    pub model: Option<Model>,
     pub name: String,
     pub system_prompt: Option<String>,
     pub thinking: Option<Thinking>,
@@ -75,7 +75,7 @@ impl Persona {
 
     #[must_use]
     #[inline]
-    pub fn with_model(mut self, model: ModelSpec) -> Self {
+    pub fn with_model(mut self, model: Model) -> Self {
         self.model = Some(model);
         self
     }
@@ -283,7 +283,7 @@ fn is_valid_key(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::provider::{Protocol, Provider};
+    use crate::llm::provider::{Model, Protocol};
     use crate::test::temp_tree::TempTree;
     use std::fs;
 
@@ -389,7 +389,7 @@ mod tests {
     async fn a_persona_file_can_set_its_model_and_thinking() {
         let tree = TempTree::new("personas-model").file(
             "personas/tester.md",
-            "---\nkey: tester\nname: Tester\ndescription: Tests.\ntools: All\nmodel:\n  provider: Ollama\n  protocol: openai\n  id: qwen\n  context_limit: 8192\nthinking: High\n---\nWrite tests.\n",
+            "---\nkey: tester\nname: Tester\ndescription: Tests.\ntools: All\nmodel:\n  provider: ollama\n  protocol: openai\n  id: qwen\n  context_limit: 8192\nthinking: High\n---\nWrite tests.\n",
         );
         let mut registry = Repository::new();
         registry.load_from(&tree.path().join("personas")).await.unwrap();
@@ -397,7 +397,9 @@ mod tests {
         let tester = registry.get("tester").unwrap();
         assert_eq!(
             tester.model,
-            Some(ModelSpec { context_limit: Some(8192), ..ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "qwen") })
+            Some(
+                Model::reference("ollama", "qwen").with_context_limit(Some(8192)).with_protocol(Some(Protocol::OpenAi))
+            )
         );
         assert_eq!(tester.thinking, Some(Thinking::High));
     }

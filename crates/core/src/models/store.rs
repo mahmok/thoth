@@ -13,46 +13,28 @@ use crate::llm::provider::{Protocol, Provider};
 use crate::sync::MutexExt as _;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-/// A model as saved.
 pub struct StoredModel {
     #[serde(default, rename = "contextLimit", skip_serializing_if = "Option::is_none")]
-    /// Tokens its context window holds, if known.
     pub context_limit: Option<u32>,
-    /// The id the provider knows it by.
     pub id: String,
-    /// The name to show.
     pub name: String,
-    /// How to talk to it.
     pub protocol: Protocol,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-/// A provider's saved models.
 pub struct ModelEntry {
     #[serde(rename = "checkedAt")]
-    /// When the list was fetched, in milliseconds since the epoch.
     pub checked_at: u64,
-    /// The models offered.
     pub models: Vec<StoredModel>,
 }
 
-/// Where fetched models are kept between runs: one entry per provider.
 pub trait Models: Debug + Send + Sync {
     fn read(&self, provider: Provider) -> Option<ModelEntry>;
-
-    /// Every provider's saved models.
     fn read_all(&self) -> Vec<(Provider, ModelEntry)>;
-
-    /// Saves a provider's models.
-    ///
-    /// # Errors
-    ///
-    /// Fails if the list cannot be saved.
     fn write(&self, provider: Provider, entry: ModelEntry) -> io::Result<()>;
 }
 
 #[derive(Default, Debug)]
-/// A models store that lives in memory.
 pub struct InMemory {
     entries: Mutex<BTreeMap<String, ModelEntry>>,
 }

@@ -5,7 +5,7 @@ use crate::auth::session::Login as LoginSession;
 use crate::auth::store::{Credentials as CredentialStore, Source};
 use crate::builtin::expand_skills;
 use crate::builtin::files::{FileReferences, Suggestions};
-use crate::llm::provider::{ModelSpec, Provider};
+use crate::llm::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
 use crate::models::choices;
 use crate::models::refresh::Session as RefreshSession;
 use crate::models::store::Models as ModelsStore;
@@ -114,7 +114,7 @@ impl Harness {
     #[inline]
     /// Whether `provider` is logged in, and how.
     pub fn login_state(&self, provider: Provider) -> LoginState {
-        match self.credentials.source(provider) {
+        match self.credentials.source(&provider) {
             Some(Source::Stored(_)) => LoginState::Saved,
             Some(Source::Environment(_)) => LoginState::FromEnvironment,
             Some(Source::Local) | None => LoginState::NotLoggedIn,
@@ -184,14 +184,41 @@ impl Harness {
 
     #[inline]
     pub fn refresh_models(&mut self) {
-        self.start_refresh(Provider::ALL.to_vec());
+        let providers = self.models.providers().into_iter().map(|provider| provider.as_ref().clone()).collect();
+        self.start_refresh(providers);
         self.sync_view();
     }
 
     #[must_use]
     #[inline]
+    /// The providers a client can log in to: the built-ins in login order, then any custom
+    /// provider that needs a credential.
+    pub fn login_providers(&self) -> Vec<Provider> {
+        let stored = self.models.providers();
+        let mut providers: Vec<Provider> = LOGIN_IDS
+            .iter()
+            .filter_map(|id| stored.iter().find(|provider| provider.id == *id))
+            .map(|provider| provider.as_ref().clone())
+            .collect();
+        providers.extend(
+            stored
+                .iter()
+                .filter(|provider| {
+                    provider.login_method() != LoginMethod::None && !LOGIN_IDS.contains(&provider.id.as_str())
+                })
+                .map(|provider| provider.as_ref().clone()),
+        );
+        providers
+    }
+
+    #[must_use]
+    #[inline]
     pub fn saved_logins(&self) -> Vec<Provider> {
-        self.credentials.stored()
+        self.credentials
+            .stored()
+            .into_iter()
+            .filter_map(|id| self.models.read(&id).map(|provider| provider.as_ref().clone()))
+            .collect()
     }
 
     fn say(&mut self, speaker: Speaker, text: String) {

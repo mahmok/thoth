@@ -14,6 +14,8 @@ use crate::agent::tools::delegate::Delegate as DelegateTool;
 use crate::agent::tools::message::Messenger as MessageTool;
 use crate::agent::tools::tool_set::ToolSet;
 use crate::auth::store::Credentials as CredentialStore;
+use crate::llm::provider::ModelSpec;
+use crate::models::store::Models as ModelsStore;
 use crate::persona::Repository as PersonaRepository;
 use crate::persona::{Persona, Selection};
 use crate::sync::MutexExt as _;
@@ -35,6 +37,7 @@ pub struct AgentBuilder {
     read_only: Mutex<HashMap<Selection, bool>>,
     skills: SkillSet,
     store: Arc<CredentialStore>,
+    models: Arc<dyn ModelsStore>,
     workspace: Workspace,
 }
 
@@ -51,8 +54,13 @@ impl AgentBuilder {
             .with_tools(tools)
             .with_skills(skill_set)
             .with_context(&context);
-        if let Some(model) = persona.model.as_ref() {
-            agent.set_model(model.clone());
+        if let Some(model) = persona.model.as_ref()
+            && let Some(provider_id) = model.provider.as_deref()
+            && let Some(provider) = self.models.read(provider_id)
+        {
+            let mut model = model.clone();
+            model.provider = None;
+            agent.set_model(ModelSpec::new(provider, model));
         }
         if let Some(thinking) = persona.thinking {
             agent.set_thinking(thinking);
@@ -104,9 +112,16 @@ impl AgentBuilder {
 
     #[inline]
     /// Creates a builder from what every Agent shares.
-    pub fn new(store: Arc<CredentialStore>, workspace: Workspace, context: AgentContext, skills: SkillSet) -> Self {
+    pub fn new(
+        store: Arc<CredentialStore>,
+        models: Arc<dyn ModelsStore>,
+        workspace: Workspace,
+        context: AgentContext,
+        skills: SkillSet,
+    ) -> Self {
         Self {
             store,
+            models,
             workspace,
             context,
             skills,
@@ -170,14 +185,16 @@ mod tests {
     use crate::llm::client::StreamedCompletion;
     use crate::llm::client::any::Client as AnyClient;
     use crate::llm::client::fake::Client as FakeClient;
-    use crate::llm::provider::{ModelSpec, Protocol, Provider};
+    use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
+    use crate::models::store::InMemory as InMemoryModelsStore;
     use crate::persona::Repository as PersonaRepository;
     use crate::test::temp_tree::TempTree;
 
     fn builder(tree: &TempTree) -> AgentBuilder {
         AgentBuilder::new(
             Arc::new(CredentialStore::in_memory()),
+            Arc::new(InMemoryModelsStore::default()),
             tree.workspace(),
             AgentContext::new(tree.path()),
             SkillSet::default(),
@@ -216,8 +233,9 @@ mod tests {
     #[test]
     fn a_persona_can_set_its_own_model_and_thinking() {
         let tree = TempTree::new("builder-settings");
-        let model = ModelSpec::new(Provider::OpenAi, Protocol::OpenAi, "gpt-4.1");
-        let persona = Persona::new("a", "A", "").with_model(model.clone()).with_thinking(Thinking::High);
+        let model = ModelSpec::new(Arc::new(Provider::openai()), Model::new("gpt-4.1"));
+        let persona =
+            Persona::new("a", "A", "").with_model(Model::reference("openai", "gpt-4.1")).with_thinking(Thinking::High);
         let agent = builder(&tree).build(&persona);
         assert_eq!(agent.model(), Some(model));
         assert_eq!(agent.thinking(), Thinking::High);
@@ -236,11 +254,9 @@ mod tests {
         let tree = TempTree::new("builder-prompt");
         let fake = FakeClient::new(vec![Ok(StreamedCompletion { text: "ok".into(), ..Default::default() })]);
         let agent = builder(&tree)
-            .build(&Persona::new("a", "A", "").with_system_prompt("be brief").with_model(ModelSpec::new(
-                Provider::Ollama,
-                Protocol::OpenAi,
-                "m",
-            )))
+            .build(
+                &Persona::new("a", "A", "").with_system_prompt("be brief").with_model(Model::reference("ollama", "m")),
+            )
             .with_client(AnyClient::Fake(fake.clone()));
         agent.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(fake.requests()[0].0, 2, "the system prompt, then the prompt");
@@ -295,7 +311,7 @@ mod tests {
         let tree = TempTree::new("builder-fake");
         let fake = FakeClient::new(vec![Ok(StreamedCompletion { text: "hi".into(), ..Default::default() })]);
         let builder = Arc::new(builder(&tree).with_fake_client(fake.clone()));
-        let persona = Persona::new("a", "A", "").with_model(ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "m"));
+        let persona = Persona::new("a", "A", "").with_model(Model::reference("ollama", "m"));
         let root = builder.build_root(&persona, registry());
         root.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(fake.requests().len(), 1);

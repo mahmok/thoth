@@ -4,7 +4,7 @@ use crate::notice::Notice;
 use core::fmt::Debug;
 
 use super::fetch::{Fetched, ModelFetcher};
-use super::{ModelEntry, ModelsStore};
+use super::store::Models as ModelsStore;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Something a refresh reports.
@@ -100,24 +100,27 @@ impl Session {
     }
 }
 
-/// Fetches each provider in turn and replaces its entry in the store. A provider that
+/// Fetches each provider in turn and replaces its models in the store. A provider that
 /// fails or has no credentials keeps whatever it had before.
 #[inline]
 pub async fn run<Callback>(providers: &[Provider], fetcher: &ModelFetcher, store: &dyn ModelsStore, emit: Callback)
 where
     Callback: Fn(Event) + Sync,
 {
-    for &provider in providers {
+    for provider in providers {
         emit(match fetcher.fetch(provider).await {
             Ok(Fetched::Models(models)) => {
                 let count = models.len();
-                match store.write(provider, ModelEntry { checked_at: now_ms(), models }) {
-                    Ok(()) => Event::Fetched { provider, count },
-                    Err(e) => Event::Failed { provider, error: format!("cannot save the models: {e}") },
+                let updated = Provider { models, checked_at: now_ms(), ..provider.clone() };
+                match store.write(&updated) {
+                    Ok(()) => Event::Fetched { provider: provider.clone(), count },
+                    Err(e) => {
+                        Event::Failed { provider: provider.clone(), error: format!("cannot save the models: {e}") }
+                    },
                 }
             },
-            Ok(Fetched::NoCredentials) => Event::Skipped(provider),
-            Err(e) => Event::Failed { provider, error: e.to_string() },
+            Ok(Fetched::NoCredentials) => Event::Skipped(provider.clone()),
+            Err(e) => Event::Failed { provider: provider.clone(), error: e.to_string() },
         });
     }
     emit(Event::Finished);
@@ -125,6 +128,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::rc::Rc;
     use alloc::sync::Arc;
     use std::sync::Mutex;
 
@@ -133,10 +137,9 @@ mod tests {
     use crate::auth::store::Credentials as CredentialStore;
     use crate::auth::testing::MockServer;
     use crate::llm::provider::Protocol;
-    use crate::models::store::{InMemory as InMemoryModelsStore, Models as ModelsStore};
+    use crate::models::store::InMemory as InMemoryModelsStore;
     use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
     use crate::models::testing::store_with;
-    use alloc::rc::Rc;
 
     struct Rig {
         session: Session,
@@ -173,20 +176,20 @@ mod tests {
         ])
         .await;
         let credentials = CredentialStore::in_memory();
-        credentials.write(Provider::Anthropic, Credential::ApiKey { key: "k".into() }).unwrap();
+        credentials.write(&Provider::anthropic(), Credential::ApiKey { key: "k".into() }).unwrap();
         let store = InMemoryModelsStore::default();
 
-        let events = refresh(&server, credentials, &store, &[Provider::Ollama, Provider::Anthropic]).await;
+        let events = refresh(&server, credentials, &store, &[Provider::ollama(), Provider::anthropic()]).await;
         assert_eq!(
             events,
             [
-                Event::Fetched { provider: Provider::Ollama, count: 2 },
-                Event::Fetched { provider: Provider::Anthropic, count: 1 },
+                Event::Fetched { provider: Provider::ollama(), count: 2 },
+                Event::Fetched { provider: Provider::anthropic(), count: 1 },
                 Event::Finished,
             ]
         );
-        assert_eq!(store.read(Provider::Ollama).unwrap().models.len(), 2);
-        let anthropic = store.read(Provider::Anthropic).unwrap();
+        assert_eq!(store.read("ollama").unwrap().models.len(), 2);
+        let anthropic = store.read("anthropic").unwrap();
         assert_eq!(anthropic.models[0].name, "Claude X");
         assert!(anthropic.checked_at > 0);
     }
@@ -199,22 +202,22 @@ mod tests {
         ])
         .await;
         let credentials = CredentialStore::in_memory();
-        credentials.write(Provider::Anthropic, Credential::ApiKey { key: "k".into() }).unwrap();
-        let store = store_with(&[(Provider::Ollama, &[("old-model", Protocol::OpenAi)])]);
+        credentials.write(&Provider::anthropic(), Credential::ApiKey { key: "k".into() }).unwrap();
+        let store = store_with(&[("ollama", &[("old-model", Some(Protocol::OpenAi))])]);
 
-        let events = refresh(&server, credentials, store.as_ref(), &[Provider::Ollama, Provider::Anthropic]).await;
-        assert!(matches!(&events[0], Event::Failed { provider: Provider::Ollama, .. }));
-        assert_eq!(events[1], Event::Fetched { provider: Provider::Anthropic, count: 1 });
-        assert_eq!(store.read(Provider::Ollama).unwrap().models[0].id, "old-model");
+        let events = refresh(&server, credentials, store.as_ref(), &[Provider::ollama(), Provider::anthropic()]).await;
+        assert!(matches!(&events[0], Event::Failed { provider, .. } if provider.id == "ollama"));
+        assert_eq!(events[1], Event::Fetched { provider: Provider::anthropic(), count: 1 });
+        assert_eq!(store.read("ollama").unwrap().models[0].id, "old-model");
     }
 
     #[tokio::test]
     async fn a_provider_without_credentials_is_skipped_and_untouched() {
         let server = MockServer::start(vec![]).await;
-        let store = store_with(&[(Provider::OpenAi, &[("cached", Protocol::OpenAi)])]);
-        let events = refresh(&server, CredentialStore::in_memory(), store.as_ref(), &[Provider::OpenAi]).await;
-        assert_eq!(events, [Event::Skipped(Provider::OpenAi), Event::Finished]);
-        assert_eq!(store.read(Provider::OpenAi).unwrap().models[0].id, "cached");
+        let store = store_with(&[("openai", &[("cached", Some(Protocol::OpenAi))])]);
+        let events = refresh(&server, CredentialStore::in_memory(), store.as_ref(), &[Provider::openai()]).await;
+        assert_eq!(events, [Event::Skipped(Provider::openai()), Event::Finished]);
+        assert_eq!(store.read("openai").unwrap().models[0].id, "cached");
         assert!(server.requests().is_empty());
     }
 
@@ -227,15 +230,16 @@ mod tests {
     #[test]
     fn a_refresh_announces_itself_and_reports_each_provider() {
         let mut r = rig();
-        let updates = r.start(vec![Provider::Ollama, Provider::OpenAi, Provider::Anthropic]);
+        let providers = vec![Provider::ollama(), Provider::openai(), Provider::anthropic()];
+        let updates = r.start(providers.clone());
         assert_eq!(updates, [Notice::Say("Refreshing models...".into())]);
-        assert_eq!(r.worker.started(), [vec![Provider::Ollama, Provider::OpenAi, Provider::Anthropic]]);
+        assert_eq!(r.worker.started(), [providers]);
         assert!(r.session.is_running());
 
-        r.worker.event(Event::Fetched { provider: Provider::Ollama, count: 3 });
-        r.worker.event(Event::Fetched { provider: Provider::OpenAi, count: 1 });
-        r.worker.event(Event::Skipped(Provider::Copilot));
-        r.worker.event(Event::Failed { provider: Provider::Anthropic, error: "http error".into() });
+        r.worker.event(Event::Fetched { provider: Provider::ollama(), count: 3 });
+        r.worker.event(Event::Fetched { provider: Provider::openai(), count: 1 });
+        r.worker.event(Event::Skipped(Provider::copilot()));
+        r.worker.event(Event::Failed { provider: Provider::anthropic(), error: "http error".into() });
         r.worker.event(Event::Finished);
         assert_eq!(
             r.poll(),
@@ -252,13 +256,13 @@ mod tests {
     #[test]
     fn a_second_refresh_while_one_runs_is_ignored() {
         let mut r = rig();
-        r.start(vec![Provider::Ollama]);
-        assert_eq!(r.start(vec![Provider::OpenAi]), [Notice::Say("A refresh is already running.".into())]);
+        r.start(vec![Provider::ollama()]);
+        assert_eq!(r.start(vec![Provider::openai()]), [Notice::Say("A refresh is already running.".into())]);
         assert_eq!(r.worker.started().len(), 1);
 
         r.worker.event(Event::Finished);
         r.poll();
-        assert_eq!(r.start(vec![Provider::OpenAi]), [Notice::Say("Refreshing models...".into())]);
+        assert_eq!(r.start(vec![Provider::openai()]), [Notice::Say("Refreshing models...".into())]);
         assert_eq!(r.worker.started().len(), 2);
     }
 }

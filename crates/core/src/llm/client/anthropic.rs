@@ -534,7 +534,7 @@ fn translate(messages: &[Message]) -> (Option<String>, Vec<WireMessage<'_>>) {
                     .iter()
                     .filter_map(|kept| match *kept {
                         Reasoning::Anthropic(ref block) => Some(WireBlock::Kept(block)),
-                        Reasoning::Responses(_) => None,
+                        Reasoning::Google(_) | Reasoning::Responses(_) => None,
                     })
                     .collect();
                 blocks.extend(text.map(WireBlock::text));
@@ -565,14 +565,14 @@ mod tests {
 
     use super::*;
     use crate::auth::store::Credentials as CredentialStore;
-    use crate::llm::provider::{ModelSpec, Protocol, Provider};
+    use crate::llm::provider::{Model, ModelSpec, Protocol, Provider};
 
     fn client() -> Client {
         Client::new(Config {
             model: "m".into(),
             max_tokens: 99,
             auth: Auth::for_model(
-                &ModelSpec::new(Provider::Ollama, Protocol::Anthropic, "m"),
+                &ModelSpec::new(Arc::new(Provider::ollama()), Model::new("m").with_protocol(Some(Protocol::Anthropic))),
                 Arc::new(CredentialStore::in_memory()),
             ),
         })

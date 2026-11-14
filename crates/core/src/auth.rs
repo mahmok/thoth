@@ -29,7 +29,7 @@ use serde::Serialize;
 
 use crate::llm::client::chat::Message;
 use crate::llm::client::error::Failure as ClientError;
-use crate::llm::provider::{AuthHeader, LoginMethod, ModelSpec, Protocol, Provider};
+use crate::llm::provider::{AuthHeader, LoginMethod, Model, Protocol, Provider};
 
 use credential::Credential;
 use github::{Endpoints, Github};
@@ -82,7 +82,6 @@ impl error::Error for Failure {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// What a request needs to be authorised.
 struct RequestAuth {
     base_url: Option<String>,
     headers: Vec<(&'static str, String)>,
@@ -96,20 +95,18 @@ impl RequestAuth {
 }
 
 #[derive(Clone, Debug)]
-/// Authorises requests to a provider.
 pub struct Auth {
     base_url: String,
     github: Github,
     http: reqwest::Client,
-    protocol: Protocol,
     provider: Provider,
     store: Arc<CredentialStore>,
 }
 
 impl Auth {
     #[inline]
-    pub fn for_model(spec: &ModelSpec, store: Arc<CredentialStore>) -> Self {
-        Self::new(spec.provider, spec.protocol, store)
+    pub fn for_provider(provider: Provider, store: Arc<CredentialStore>) -> Self {
+        Self::new(provider, store)
     }
 
     #[inline]
@@ -123,12 +120,10 @@ impl Auth {
     }
 
     #[inline]
-    /// Creates an `Auth` for a provider and protocol.
-    pub fn new(provider: Provider, protocol: Protocol, store: Arc<CredentialStore>) -> Self {
+    pub fn new(provider: Provider, store: Arc<CredentialStore>) -> Self {
         Self {
             provider,
-            protocol,
-            base_url: provider.base_url(protocol).to_owned(),
+            base_url: provider.base_url(provider.protocol).to_owned(),
             store,
             http: http_client(),
             github: Github::new(Endpoints::github()),
@@ -174,7 +169,6 @@ impl Auth {
         Ok(token)
     }
 
-    /// Finds what to authorise with: a local server, the environment or a stored credential.
     async fn resolve(&self, messages: &[Message]) -> Result<RequestAuth, Failure> {
         let provider = self.provider;
         let method = provider.login_method();
@@ -194,7 +188,6 @@ impl Auth {
         }
     }
 
-    /// Sends an authorised request, turning a rejection or a bad request into an error.
     #[expect(clippy::too_many_arguments, reason = "the arguments are separate pieces of one call")]
     async fn send<B>(
         &self,
@@ -213,9 +206,9 @@ impl Auth {
         if let Some(payload) = body {
             request = request.json(payload);
         }
-        request = match self.provider.auth_header(self.protocol) {
+        request = match AuthHeader::from_protocol(self.provider.protocol) {
             AuthHeader::Bearer => request.bearer_auth(&auth.token),
-            AuthHeader::XApiKey => request.header("x-api-key", &auth.token),
+            AuthHeader::CustomHeader(header) => request.header(header, &auth.token),
         };
         for &(name, ref value) in &auth.headers {
             request = request.header(name, value);
@@ -279,7 +272,7 @@ mod tests {
     }
 
     fn auth(provider: Provider, protocol: Protocol, store: Arc<CredentialStore>) -> Auth {
-        Auth::new(provider, protocol, store)
+        Auth::new(provider, store)
     }
 
     async fn post(auth: &Auth, server: &MockServer, messages: &[Message]) -> Result<Response, ClientError> {

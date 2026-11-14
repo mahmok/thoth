@@ -192,9 +192,8 @@ impl Drop for ActiveGuard<'_> {
     }
 }
 #[derive(Debug)]
-
 /// A model and its client.
-struct Model {
+struct Current {
     client: Arc<AnyClient>,
     spec: ModelSpec,
 }
@@ -210,7 +209,7 @@ pub struct Agent {
     /// estimate (bytes / 4) is too low for code and JSON, so thresholds would be reached late.
     calibration: sync::Mutex<f32>,
     conversation: Mutex<Conversation>,
-    current: RwLock<Option<Model>>,
+    current: RwLock<Option<Current>>,
     description: String,
     max_steps: usize,
     name: String,
@@ -569,7 +568,7 @@ impl Agent {
     /// Switches to `spec`, with a client of its own, and restarts token calibration.
     pub fn set_model(&self, spec: ModelSpec) {
         let client = Arc::new(AnyClient::for_model(&spec, &self.store));
-        *self.current.write_unpoisoned() = Some(Model { client, spec });
+        *self.current.write_unpoisoned() = Some(Current { client, spec });
         // Another model counts tokens its own way.
         *self.calibration.lock_unpoisoned() = 1.0;
     }
@@ -595,7 +594,7 @@ impl Agent {
     where
         F: FnMut(Event) + Send,
     {
-        let limit = self.model().and_then(|model| model.context_limit);
+        let limit = self.model().and_then(|model| model.context_limit());
         // The prompt counts: a large one, with files attached, is part of the next request.
         let incoming = prompt.len().div_ceil(4);
         let used = self.scaled(
@@ -685,7 +684,7 @@ impl Agent {
         let (Some(elision), Some(compaction)) = (self.budget.elision.as_ref(), self.budget.compaction.as_ref()) else {
             return;
         };
-        let limit = self.model().and_then(|model| model.context_limit);
+        let limit = self.model().and_then(|model| model.context_limit());
         let used = self.scaled(turn.estimated_tokens().saturating_add(self.tools.estimated_tokens()));
         if used > compaction.threshold(limit) {
             let _elided = turn.elide(elision);
@@ -839,7 +838,7 @@ mod tests {
     use crate::llm::client::chat::{FunctionCall, Role, ToolCall, ToolCallKind};
     use crate::llm::client::fake;
     use crate::llm::client::fake::Client as FakeClient;
-    use crate::llm::provider::{ModelSpec, Protocol, Provider};
+    use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::persona::Persona;
     use crate::test::assert_empty;
     use core::future;
@@ -1104,7 +1103,7 @@ mod tests {
     }
 
     fn test_model() -> ModelSpec {
-        ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "test-model")
+        ModelSpec::new(Arc::new(Provider::ollama()), Model::new("test-model"))
     }
 
     pub(super) fn build(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
@@ -1757,7 +1756,7 @@ mod tests {
     fn the_model_can_be_switched() {
         let agent = agent(vec![]);
         assert_eq!(agent.model(), Some(test_model()));
-        let other = ModelSpec::new(Provider::OpenAi, Protocol::OpenAi, "gpt-4.1");
+        let other = ModelSpec::new(Arc::new(Provider::openai()), Model::new("gpt-4.1"));
         agent.set_model(other.clone());
         assert_eq!(agent.model(), Some(other));
     }
@@ -1777,7 +1776,7 @@ mod tests {
         let agent = agent(vec![text("a")]);
         assert_eq!(agent.settings(), Settings { model: Some(test_model()), thinking: Thinking::Medium });
         agent.apply(Change::SetThinking(Thinking::Max));
-        let other = ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "other");
+        let other = ModelSpec::new(Arc::new(Provider::ollama()), Model::new("other"));
         agent.apply(Change::SetModel(other.clone()));
         assert_eq!(agent.settings(), Settings { model: Some(other), thinking: Thinking::Max });
     }

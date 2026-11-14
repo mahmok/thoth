@@ -175,7 +175,7 @@ mod tests {
             vec![(400, "unknown field reasoning_effort".into()), (200, reply.into())],
         )])
         .await;
-        let auth = Auth::new(Provider::Ollama, Protocol::OpenAi, Arc::new(CredentialStore::in_memory()))
+        let auth = Auth::new(Provider::ollama(), Protocol::OpenAi, Arc::new(CredentialStore::in_memory()))
             .with_base_url(&server.url);
         let client = OpenAiClient::new(OpenAiConfig { model: "plain".into(), auth });
         let messages = [Message::user("hi")];
@@ -205,7 +205,7 @@ mod tests {
 
         let reply = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n";
         let server = MockServer::start(vec![("/chat/completions", vec![(200, reply.into())])]).await;
-        let auth = Auth::new(Provider::Ollama, Protocol::OpenAi, Arc::new(CredentialStore::in_memory()))
+        let auth = Auth::new(Provider::ollama(), Protocol::OpenAi, Arc::new(CredentialStore::in_memory()))
             .with_base_url(&server.url);
         let client = OpenAiClient::new(OpenAiConfig { model: "m".into(), auth });
         let messages = [Message::user("hi")];

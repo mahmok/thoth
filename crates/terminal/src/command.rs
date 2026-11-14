@@ -1,5 +1,6 @@
 use super::client::Client;
 use thoth_core::builtin::skills::SKILL_PREFIX;
+#[cfg(test)]
 use thoth_core::llm::provider::Provider;
 use thoth_core::llm::thinking::Thinking;
 use thoth_core::session::{LoginState, Refusal};
@@ -218,7 +219,7 @@ fn models(session: &Client) -> Vec<Pick> {
         .map(|(spec, name)| {
             let note = if Some(&spec) == current.as_ref() {
                 "current".to_owned()
-            } else if name != spec.id {
+            } else if name != spec.model.id {
                 name
             } else {
                 spec.provider.display_name().to_owned()
@@ -306,10 +307,11 @@ fn levels(session: &Client) -> Vec<Pick> {
 
 /// The providers to log in to, with their state.
 fn logins(session: &Client) -> Vec<Pick> {
-    Provider::LOGINS
+    session
+        .login_providers()
         .into_iter()
         .map(|provider| {
-            let note = match session.login_state(provider) {
+            let note = match session.login_state(provider.clone()) {
                 LoginState::Saved => "logged in".to_owned(),
                 LoginState::FromEnvironment => {
                     format!("using {}", provider.env_var().unwrap_or("the environment"))
@@ -482,14 +484,14 @@ mod tests {
         assert!(models.items.iter().all(|m| m.needs_idle));
 
         assert_eq!(choose(&mut f.harness, &models, "llama3"), Ok(Ran::Done));
-        assert_eq!(f.agent.model().map(|m| m.id), Some("llama3.2:3b".to_owned()));
+        assert_eq!(f.agent.model().map(|m| m.model.id), Some("llama3.2:3b".to_owned()));
     }
 
     #[test]
     fn a_choice_is_run_by_its_key_without_asking_for_the_list_first() {
         let mut f = fresh();
-        assert_eq!(run(&mut f.harness, "model", Some("openai/openai/gpt-4o")), Ok(Ran::Done));
-        assert_eq!(f.agent.model().map(|m| m.id), Some("gpt-4o".to_owned()));
+        assert_eq!(run(&mut f.harness, "model", Some("openai/responses/gpt-4o")), Ok(Ran::Done));
+        assert_eq!(f.agent.model().map(|m| m.model.id), Some("gpt-4o".to_owned()));
     }
 
     #[test]
@@ -550,9 +552,9 @@ mod tests {
 
     #[test]
     fn login_and_logout_list_their_own_providers() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::OpenAi]);
+        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::openai()]);
         let logins = open(&mut f.harness, "login");
-        assert_eq!(labels(&logins), ["GitHub Copilot", "OpenAI", "Anthropic"]);
+        assert_eq!(labels(&logins), ["GitHub Copilot", "OpenAI", "Anthropic", "Google"]);
         assert_eq!(logins.items[1].description, "logged in");
         assert_eq!(labels(&open(&mut f.harness, "logout")), ["OpenAI"]);
     }
@@ -567,7 +569,7 @@ mod tests {
 
     #[test]
     fn logout_removes_the_saved_login_and_the_old_list_is_then_stale() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::Copilot]);
+        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::copilot()]);
         let saved = open(&mut f.harness, "logout");
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Ok(Ran::Done));
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Err(Refused::UnknownChoice));

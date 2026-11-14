@@ -182,7 +182,9 @@ fn message_tokens(message: &Message) -> usize {
     let reasoning: usize = message
         .reasoning
         .iter()
-        .map(|&(Reasoning::Responses(ref v) | Reasoning::Anthropic(ref v))| tokens(&v.to_string()))
+        .map(|&(Reasoning::Responses(ref v) | Reasoning::Anthropic(ref v) | Reasoning::Google(ref v))| {
+            tokens(&v.to_string())
+        })
         .sum();
     content.saturating_add(calls).saturating_add(reasoning)
 }

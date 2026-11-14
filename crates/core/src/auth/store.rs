@@ -65,7 +65,7 @@ pub struct Credentials {
 
 impl Credentials {
     #[inline]
-    pub fn can_use(&self, provider: Provider) -> bool {
+    pub fn can_use(&self, provider: &Provider) -> bool {
         self.source(provider).is_some()
     }
 
@@ -82,7 +82,7 @@ impl Credentials {
     ///
     /// Fails if the credentials cannot be saved.
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
-    pub fn delete(&self, provider: Provider) -> io::Result<()> {
+    pub fn delete(&self, provider: &Provider) -> io::Result<()> {
         let mut credentials = self.entries.lock_unpoisoned();
         drop(credentials.remove(provider.id()));
         self.persist(&credentials)
@@ -135,7 +135,7 @@ impl Credentials {
     }
 
     #[inline]
-    pub fn read(&self, provider: Provider) -> Option<Credential> {
+    pub fn read(&self, provider: &Provider) -> Option<Credential> {
         self.entries.lock_unpoisoned().get(provider.id()).cloned()
     }
 
@@ -146,7 +146,7 @@ impl Credentials {
 
     #[inline]
     /// Where `provider`'s credential comes from: local, saved or the environment.
-    pub fn source(&self, provider: Provider) -> Option<Source> {
+    pub fn source(&self, provider: &Provider) -> Option<Source> {
         if provider.login_method() == LoginMethod::None {
             return Some(Source::Local);
         }
@@ -157,9 +157,9 @@ impl Credentials {
     }
 
     #[inline]
-    pub fn stored(&self) -> Vec<Provider> {
-        let credentials = self.entries.lock_unpoisoned();
-        Provider::LOGINS.into_iter().filter(|p| credentials.contains_key(p.id())).collect()
+    /// The ids of the providers whose credentials are saved, in id order.
+    pub fn stored(&self) -> Vec<String> {
+        self.entries.lock_unpoisoned().keys().cloned().collect()
     }
 
     /// A store that is never written to disk but still reads the process environment.
@@ -187,7 +187,7 @@ impl Credentials {
     ///
     /// Fails if the credentials cannot be saved.
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
-    pub fn write(&self, provider: Provider, credential: Credential) -> io::Result<()> {
+    pub fn write(&self, provider: &Provider, credential: Credential) -> io::Result<()> {
         let mut credentials = self.entries.lock_unpoisoned();
         drop(credentials.insert(provider.id().to_owned(), credential));
         self.persist(&credentials)
@@ -215,15 +215,15 @@ mod tests {
     fn credentials_survive_a_restart() {
         let path = temp_path("restart");
         let store = Credentials::open(&path).unwrap();
-        store.write(Provider::OpenAi, key("sk-1")).unwrap();
+        store.write(&Provider::openai(), key("sk-1")).unwrap();
         store
-            .write(Provider::Copilot, Credential::Oauth { refresh: "r".into(), access: "a".into(), expires: 5 })
+            .write(&Provider::copilot(), Credential::Oauth { refresh: "r".into(), access: "a".into(), expires: 5 })
             .unwrap();
 
         let reopened = Credentials::open(&path).unwrap();
-        assert_eq!(reopened.read(Provider::OpenAi), Some(key("sk-1")));
-        assert!(matches!(reopened.read(Provider::Copilot), Some(Credential::Oauth { expires: 5, .. })));
-        assert_eq!(reopened.stored(), [Provider::Copilot, Provider::OpenAi]);
+        assert_eq!(reopened.read(&Provider::openai()), Some(key("sk-1")));
+        assert!(matches!(reopened.read(&Provider::copilot()), Some(Credential::Oauth { expires: 5, .. })));
+        assert_eq!(reopened.stored(), ["github-copilot", "openai"]);
         fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
     }
 
@@ -231,7 +231,7 @@ mod tests {
     fn the_file_format_is_type_tagged_per_provider() {
         let path = temp_path("format");
         let store = Credentials::open(&path).unwrap();
-        store.write(Provider::Anthropic, key("k")).unwrap();
+        store.write(&Provider::anthropic(), key("k")).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(value["anthropic"]["type"], "api_key");
@@ -244,7 +244,7 @@ mod tests {
     fn the_file_and_its_directory_are_private() {
         use std::os::unix::fs::PermissionsExt as _;
         let path = temp_path("mode");
-        Credentials::open(&path).unwrap().write(Provider::OpenAi, key("k")).unwrap();
+        Credentials::open(&path).unwrap().write(&Provider::openai(), key("k")).unwrap();
         let file = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         let dir = fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777;
         assert_eq!((file, dir), (0o600, 0o700));
@@ -255,9 +255,9 @@ mod tests {
     fn deleting_removes_the_credential_from_disk() {
         let path = temp_path("delete");
         let store = Credentials::open(&path).unwrap();
-        store.write(Provider::OpenAi, key("k")).unwrap();
-        store.delete(Provider::OpenAi).unwrap();
-        assert_eq!(Credentials::open(&path).unwrap().read(Provider::OpenAi), None);
+        store.write(&Provider::openai(), key("k")).unwrap();
+        store.delete(&Provider::openai()).unwrap();
+        assert_eq!(Credentials::open(&path).unwrap().read(&Provider::openai()), None);
         fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).unwrap();
     }
 
@@ -274,25 +274,25 @@ mod tests {
     #[test]
     fn an_in_memory_store_keeps_values_without_touching_disk() {
         let store = Credentials::in_memory();
-        store.write(Provider::OpenAi, key("k")).unwrap();
-        assert_eq!(store.read(Provider::OpenAi), Some(key("k")));
+        store.write(&Provider::openai(), key("k")).unwrap();
+        assert_eq!(store.read(&Provider::openai()), Some(key("k")));
     }
 
     #[test]
     fn a_saved_login_wins_over_the_environment_and_local_providers_need_nothing() {
         let store = Credentials::in_memory().with_env("OPENAI_API_KEY", "sk-env").with_env("ANTHROPIC_API_KEY", "sk-a");
-        assert_eq!(store.source(Provider::Ollama), Some(Source::Local));
-        assert_eq!(store.source(Provider::OpenAi), Some(Source::Environment("sk-env".into())));
-        store.write(Provider::OpenAi, key("sk-stored")).unwrap();
-        assert_eq!(store.source(Provider::OpenAi), Some(Source::Stored(key("sk-stored"))));
-        assert_eq!(store.source(Provider::Copilot), None);
-        assert!(store.can_use(Provider::Anthropic) && !store.can_use(Provider::Copilot));
+        assert_eq!(store.source(&Provider::ollama()), Some(Source::Local));
+        assert_eq!(store.source(&Provider::openai()), Some(Source::Environment("sk-env".into())));
+        store.write(&Provider::openai(), key("sk-stored")).unwrap();
+        assert_eq!(store.source(&Provider::openai()), Some(Source::Stored(key("sk-stored"))));
+        assert_eq!(store.source(&Provider::copilot()), None);
+        assert!(store.can_use(&Provider::anthropic()) && !store.can_use(&Provider::copilot()));
     }
 
     #[test]
     fn an_empty_environment_variable_does_not_count() {
         let store = Credentials::in_memory().with_env("OPENAI_API_KEY", "");
-        assert!(!store.can_use(Provider::OpenAi));
+        assert!(!store.can_use(&Provider::openai()));
     }
 
     #[test]

@@ -8,28 +8,14 @@ use super::github::Github;
 use super::store::Credentials as CredentialStore;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Something a login reports.
 pub enum LoginEvent {
-    /// GitHub issued a code to enter.
-    DeviceCode {
-        /// Where to enter the code.
-        url: String,
-        /// The code to enter.
-        code: String,
-    },
-    /// The login succeeded.
+    DeviceCode { url: String, code: String },
     Done(Provider),
-    /// The login failed.
     Failed(String),
-    /// A key is needed from the user.
-    PromptSecret {
-        /// What to ask the user.
-        message: String,
-    },
+    PromptSecret { message: String },
 }
 
 #[inline]
-/// Logs in to `provider` and reports progress through `emit`.
 pub async fn run<Callback>(
     provider: Provider,
     github: &Github,
@@ -41,7 +27,7 @@ pub async fn run<Callback>(
 {
     let result = match provider.login_method() {
         LoginMethod::GithubDevice => login_copilot(github, store, &emit).await,
-        LoginMethod::ApiKey => login_api_key(provider, store, answers, &emit).await,
+        LoginMethod::ApiKey => login_api_key(provider.clone(), store, answers, &emit).await,
         LoginMethod::None => Err(AuthError::Flow(format!("{} needs no login", provider.display_name()))),
     };
     emit(match result {
@@ -60,10 +46,9 @@ async fn login_copilot(
 
     let github_token = github.poll_token(&device).await?;
     let credential = github.exchange_token(&github_token).await?;
-    store.write(Provider::Copilot, credential).map_err(|e| AuthError::Store(e.to_string()))
+    store.write(&Provider::copilot(), credential).map_err(|e| AuthError::Store(e.to_string()))
 }
 
-/// Asks for an API key and saves it.
 async fn login_api_key(
     provider: Provider,
     store: &CredentialStore,
@@ -78,7 +63,7 @@ async fn login_api_key(
     if key.is_empty() {
         return Err(AuthError::Flow("no key entered".into()));
     }
-    store.write(provider, Credential::ApiKey { key: key.to_owned() }).map_err(|e| AuthError::Store(e.to_string()))
+    store.write(&provider, Credential::ApiKey { key: key.to_owned() }).map_err(|e| AuthError::Store(e.to_string()))
 }
 
 #[cfg(test)]
@@ -123,16 +108,16 @@ mod tests {
     #[tokio::test]
     async fn copilot_login_shows_the_code_and_stores_the_credential() {
         let server = copilot_server().await;
-        let outcome = login(Provider::Copilot, Some(&server), &[]).await;
+        let outcome = login(Provider::copilot(), Some(&server), &[]).await;
 
         assert_eq!(
             outcome.events,
             [
                 LoginEvent::DeviceCode { url: "https://github.com/login/device".into(), code: "WXYZ-9999".into() },
-                LoginEvent::Done(Provider::Copilot),
+                LoginEvent::Done(Provider::copilot()),
             ]
         );
-        assert!(matches!(outcome.store.read(Provider::Copilot),
+        assert!(matches!(outcome.store.read(&Provider::copilot()),
             Some(Credential::Oauth { refresh, access, .. }) if refresh == "gho_1" && access == "copilot-tok"));
         let paths: Vec<String> = server.requests().into_iter().map(|r| r.path).collect();
         assert!(paths.iter().all(|path| !path.contains("/policy")), "{paths:?}");
@@ -148,35 +133,35 @@ mod tests {
             ("/login/oauth/access_token", vec![(200, r#"{"error":"access_denied"}"#.into())]),
         ])
         .await;
-        let outcome = login(Provider::Copilot, Some(&server), &[]).await;
+        let outcome = login(Provider::copilot(), Some(&server), &[]).await;
         assert!(matches!(outcome.events.last(), Some(LoginEvent::Failed(m)) if m.contains("access_denied")));
-        assert!(outcome.store.read(Provider::Copilot).is_none());
+        assert!(outcome.store.read(&Provider::copilot()).is_none());
     }
 
     #[tokio::test]
     async fn an_api_key_is_asked_for_trimmed_and_stored() {
-        let outcome = login(Provider::OpenAi, None, &["  sk-test \n"]).await;
+        let outcome = login(Provider::openai(), None, &["  sk-test \n"]).await;
         assert!(matches!(&outcome.events[0], LoginEvent::PromptSecret { message } if message.contains("OpenAI")));
-        assert_eq!(outcome.events[1], LoginEvent::Done(Provider::OpenAi));
-        assert_eq!(outcome.store.read(Provider::OpenAi), Some(Credential::ApiKey { key: "sk-test".into() }));
+        assert_eq!(outcome.events[1], LoginEvent::Done(Provider::openai()));
+        assert_eq!(outcome.store.read(&Provider::openai()), Some(Credential::ApiKey { key: "sk-test".into() }));
     }
 
     #[tokio::test]
     async fn an_empty_key_is_refused() {
-        let outcome = login(Provider::Anthropic, None, &["   "]).await;
+        let outcome = login(Provider::anthropic(), None, &["   "]).await;
         assert!(matches!(outcome.events.last(), Some(LoginEvent::Failed(m)) if m == "no key entered"));
-        assert!(outcome.store.read(Provider::Anthropic).is_none());
+        assert!(outcome.store.read(&Provider::anthropic()).is_none());
     }
 
     #[tokio::test]
     async fn closing_the_prompt_cancels_the_login() {
-        let outcome = login(Provider::Anthropic, None, &[]).await;
+        let outcome = login(Provider::anthropic(), None, &[]).await;
         assert!(matches!(outcome.events.last(), Some(LoginEvent::Failed(m)) if m == "login cancelled"));
     }
 
     #[tokio::test]
     async fn ollama_has_nothing_to_log_in_to() {
-        let outcome = login(Provider::Ollama, None, &[]).await;
+        let outcome = login(Provider::ollama(), None, &[]).await;
         assert!(matches!(outcome.events.last(), Some(LoginEvent::Failed(_))));
     }
 }

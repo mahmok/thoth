@@ -3,10 +3,10 @@ use alloc::sync::Arc;
 use crate::background::Background;
 use crate::llm::provider::Provider;
 
-use super::ModelsStore;
 use super::fetch::ModelFetcher;
 use super::refresh;
 use super::refresh::{Event as RefreshEvent, Worker as RefreshWorker};
+use super::store::Models as ModelsStore;
 
 #[derive(Debug)]
 /// A refresh worker on tokio.
@@ -57,7 +57,7 @@ mod tests {
         let store = Arc::new(InMemoryModelsStore::default());
         let fetcher = ModelFetcher::new(Arc::new(CredentialStore::in_memory())).with_base_url(&server.url);
         let worker = TokioRefresh::new(fetcher, Arc::<InMemoryModelsStore>::clone(&store));
-        worker.start(vec![Provider::Ollama]);
+        worker.start(vec![Provider::ollama()]);
 
         let mut events = Vec::new();
         time::timeout(Duration::from_secs(5), async {
@@ -71,7 +71,7 @@ mod tests {
         .await
         .expect("the refresh should finish");
 
-        assert_eq!(events[0], RefreshEvent::Fetched { provider: Provider::Ollama, count: 1 });
-        assert_eq!(store.read(Provider::Ollama).unwrap().models[0].id, "llama3");
+        assert_eq!(events[0], RefreshEvent::Fetched { provider: Provider::ollama(), count: 1 });
+        assert_eq!(store.read("ollama").unwrap().models[0].id, "llama3");
     }
 }

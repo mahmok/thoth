@@ -2,10 +2,12 @@ use alloc::collections::VecDeque;
 use alloc::rc::Rc;
 use core::cell::{Cell, RefCell};
 
+use alloc::sync::Arc;
+
 use super::{Controller as AgentController, Reply};
 use crate::agent::skills::SkillSummary;
 use crate::agent::{Change as AgentChange, Settings};
-use crate::llm::provider::{ModelSpec, Protocol, Provider};
+use crate::llm::provider::{Model, ModelSpec, Provider};
 use crate::llm::thinking::Thinking;
 
 #[derive(Debug)]
@@ -47,7 +49,7 @@ impl Controller {
     pub fn new() -> Rc<Self> {
         Rc::new(Self {
             settings: RefCell::new(Settings {
-                model: Some(ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "bonsai-2:2b")),
+                model: Some(ModelSpec::new(Arc::new(Provider::ollama()), Model::new("bonsai-2:2b"))),
                 thinking: Thinking::default(),
             }),
             skills: RefCell::default(),

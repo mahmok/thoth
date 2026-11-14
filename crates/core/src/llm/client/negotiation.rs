@@ -8,7 +8,7 @@ use crate::sync::MutexExt as _;
 use super::ClientError;
 
 /// Words in an error that point at a request setting.
-const SETTING_WORDS: [&str; 6] = ["reason", "effort", "thinking", "budget", "summary", "include"];
+const SETTING_WORDS: [&str; 7] = ["reason", "effort", "thinking", "budget", "summary", "include", "level"];
 
 #[derive(Default, Debug)]
 /// Remembers which setting a model accepts.

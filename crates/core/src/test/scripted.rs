@@ -41,7 +41,7 @@ impl Scripted {
     pub fn new(agent: Rc<ScriptedAgent>, logged_in: &[Provider]) -> Self {
         let store = Arc::new(CredentialStore::in_memory());
         for provider in logged_in {
-            store.write(*provider, Credential::ApiKey { key: "k".into() }).unwrap();
+            store.write(provider, Credential::ApiKey { key: "k".into() }).unwrap();
         }
         let workspace = Workspace::from_current_dir().unwrap();
         Self {
@@ -61,6 +61,7 @@ impl Scripted {
             personas: PersonaRepository::new(),
             builder: AgentBuilder::new(
                 Arc::clone(&self.store),
+                models.clone(),
                 self.workspace.clone(),
                 AgentContext::new(self.workspace.root()),
                 SkillSet::default(),

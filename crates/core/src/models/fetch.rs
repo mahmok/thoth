@@ -6,9 +6,7 @@ use crate::auth::Auth;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::client::anthropic::API_VERSION;
 use crate::llm::client::error::Failure as ClientError;
-use crate::llm::provider::{Protocol, Provider};
-
-use super::StoredModel;
+use crate::llm::provider::{LoginMethod, Model, Protocol, Provider};
 
 /// Id fragments of models that cannot chat.
 const NOT_CHAT: [&str; 11] = [
@@ -30,7 +28,7 @@ const COPILOT_API_VERSION: &str = "2026-06-01";
 #[derive(Debug, PartialEq, Eq)]
 /// The result of fetching models.
 pub enum Fetched {
-    Models(Vec<StoredModel>),
+    Models(Vec<Model>),
     NoCredentials,
 }
 
@@ -78,6 +76,24 @@ struct CopilotLimits {
     max_prompt_tokens: Option<u32>,
 }
 
+#[derive(Deserialize)]
+/// A model list reply of Google.
+struct GoogleList {
+    #[serde(default)]
+    models: Vec<GoogleModel>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// A model of Google.
+struct GoogleModel {
+    display_name: Option<String>,
+    input_token_limit: Option<u32>,
+    name: String,
+    #[serde(default)]
+    supported_generation_methods: Vec<String>,
+}
+
 #[derive(Debug)]
 /// Fetches the models a provider offers.
 pub struct ModelFetcher {
@@ -86,24 +102,23 @@ pub struct ModelFetcher {
 }
 
 impl ModelFetcher {
-    async fn anthropic(&self) -> Result<Vec<StoredModel>, ClientError> {
-        let auth = self.auth(Provider::Anthropic, Protocol::Anthropic);
+    async fn anthropic(&self, provider: &Provider) -> Result<Vec<Model>, ClientError> {
+        let auth = self.auth(provider);
         let response = auth.get("/v1/models?limit=1000", &[("anthropic-version", API_VERSION)]).await?;
         let list: List<AnthropicModel> = response.json().await?;
         Ok(list
             .data
             .into_iter()
-            .map(|model| StoredModel {
-                name: model.display_name.unwrap_or_else(|| model.id.clone()),
-                id: model.id,
-                protocol: Protocol::Anthropic,
-                context_limit: model.max_input_tokens,
+            .map(|model| {
+                Model::new(model.id)
+                    .with_name(model.display_name.unwrap_or_default())
+                    .with_context_limit(model.max_input_tokens)
             })
             .collect())
     }
 
-    fn auth(&self, provider: Provider, protocol: Protocol) -> Auth {
-        let auth = Auth::new(provider, protocol, Arc::clone(&self.credentials));
+    fn auth(&self, provider: &Provider) -> Auth {
+        let auth = Auth::for_provider(provider, Arc::clone(&self.credentials));
         match self.base_url.as_ref() {
             Some(base_url) => auth.with_base_url(base_url),
             None => auth,
@@ -111,9 +126,9 @@ impl ModelFetcher {
     }
 
     /// Fetches the Copilot models.
-    async fn copilot(&self) -> Result<Vec<StoredModel>, ClientError> {
+    async fn copilot(&self, provider: &Provider) -> Result<Vec<Model>, ClientError> {
         let headers = [("Accept", "application/json"), ("X-GitHub-Api-Version", COPILOT_API_VERSION)];
-        let response = self.auth(Provider::Copilot, Protocol::OpenAi).get("/models", &headers).await?;
+        let response = self.auth(provider).get("/models", &headers).await?;
         let list: List<CopilotModel> = response.json().await?;
         Ok(list
             .data
@@ -129,12 +144,12 @@ impl ModelFetcher {
                 } else {
                     return None;
                 };
-                Some(StoredModel {
-                    name: model.name.unwrap_or_else(|| model.id.clone()),
-                    id: model.id,
-                    protocol,
-                    context_limit: model.capabilities.limits.max_prompt_tokens,
-                })
+                Some(
+                    Model::new(model.id)
+                        .with_name(model.name.unwrap_or_default())
+                        .with_protocol(Some(protocol))
+                        .with_context_limit(model.capabilities.limits.max_prompt_tokens),
+                )
             })
             .collect())
     }
@@ -145,19 +160,43 @@ impl ModelFetcher {
     /// # Errors
     ///
     /// Fails if the provider's model list cannot be fetched.
-    pub async fn fetch(&self, provider: Provider) -> Result<Fetched, ClientError> {
+    pub async fn fetch(&self, provider: &Provider) -> Result<Fetched, ClientError> {
         if !self.credentials.can_use(provider) {
             return Ok(Fetched::NoCredentials);
         }
-        let mut models = match provider {
-            Provider::Ollama => self.plain(provider, |_| true).await?,
-            Provider::OpenAi => self.plain(provider, |id| !NOT_CHAT.iter().any(|word| id.contains(word))).await?,
-            Provider::Anthropic => self.anthropic().await?,
-            Provider::Copilot => self.copilot().await?,
+        let mut models = if provider.login == LoginMethod::GithubDevice {
+            self.copilot(provider).await?
+        } else {
+            match provider.protocol {
+                Protocol::Anthropic => self.anthropic(provider).await?,
+                Protocol::Google => self.google(provider).await?,
+                Protocol::OpenAi | Protocol::Responses => {
+                    self.plain(provider, |id| !NOT_CHAT.iter().any(|word| id.contains(word))).await?
+                },
+            }
         };
         models.sort_by(|a, b| a.id.cmp(&b.id));
         models.dedup_by(|a, b| a.id == b.id);
         Ok(Fetched::Models(models))
+    }
+
+    /// Fetches the Google models that can generate content.
+    async fn google(&self, provider: &Provider) -> Result<Vec<Model>, ClientError> {
+        let response = self.auth(provider).get("/v1beta/models", &[]).await?;
+        let list: GoogleList = response.json().await?;
+        Ok(list
+            .models
+            .into_iter()
+            .filter(|model| {
+                model.supported_generation_methods.is_empty()
+                    || model.supported_generation_methods.iter().any(|method| method == "generateContent")
+            })
+            .map(|model| {
+                Model::new(model.name.strip_prefix("models/").unwrap_or(&model.name).to_owned())
+                    .with_name(model.display_name.unwrap_or_default())
+                    .with_context_limit(model.input_token_limit)
+            })
+            .collect())
     }
 
     #[inline]
@@ -165,20 +204,10 @@ impl ModelFetcher {
         Self { credentials, base_url: None }
     }
 
-    async fn plain(&self, provider: Provider, keep: impl Fn(&str) -> bool) -> Result<Vec<StoredModel>, ClientError> {
-        let response = self.auth(provider, Protocol::OpenAi).get("/models", &[]).await?;
+    async fn plain(&self, provider: &Provider, keep: impl Fn(&str) -> bool) -> Result<Vec<Model>, ClientError> {
+        let response = self.auth(provider).get("/models", &[]).await?;
         let list: List<PlainModel> = response.json().await?;
-        Ok(list
-            .data
-            .into_iter()
-            .filter(|model| keep(&model.id))
-            .map(|model| StoredModel {
-                name: model.id.clone(),
-                id: model.id,
-                protocol: Protocol::OpenAi,
-                context_limit: None,
-            })
-            .collect())
+        Ok(list.data.into_iter().filter(|model| keep(&model.id)).map(|model| Model::new(model.id)).collect())
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -200,7 +229,7 @@ mod tests {
     fn credentials(provider: Option<(Provider, Credential)>) -> Arc<CredentialStore> {
         let store = CredentialStore::in_memory();
         if let Some((owner, credential)) = provider {
-            store.write(owner, credential).unwrap();
+            store.write(&owner, credential).unwrap();
         }
         Arc::new(store)
     }
@@ -215,7 +244,9 @@ mod tests {
 
     fn ids(fetched: Fetched) -> Vec<(String, Protocol)> {
         match fetched {
-            Fetched::Models(models) => models.into_iter().map(|m| (m.id, m.protocol)).collect(),
+            Fetched::Models(models) => {
+                models.into_iter().map(|m| (m.id, m.protocol.unwrap_or(Protocol::OpenAi))).collect()
+            },
             Fetched::NoCredentials => panic!("expected models"),
         }
     }
@@ -224,7 +255,7 @@ mod tests {
     async fn ollama_models_are_listed_once_as_openai_protocol_without_any_login() {
         let server = serve("/models", r#"{"data":[{"id":"mistral:latest"},{"id":"bonsai-2:2b"}]}"#).await;
         let fetcher = ModelFetcher::new(credentials(None)).with_base_url(&server.url);
-        let models = ids(fetcher.fetch(Provider::Ollama).await.unwrap());
+        let models = ids(fetcher.fetch(&Provider::ollama()).await.unwrap());
         assert_eq!(models, [("bonsai-2:2b".into(), Protocol::OpenAi), ("mistral:latest".into(), Protocol::OpenAi)]);
     }
 
@@ -235,8 +266,8 @@ mod tests {
             {"id":"omni-moderation-latest"},{"id":"gpt-4o-audio-preview"},{"id":"gpt-image-1"},
             {"id":"o3-mini"},{"id":"gpt-4o-transcribe"},{"id":"davinci-002"},{"id":"babbage-002"}]}"#;
         let server = serve("/models", body).await;
-        let fetcher = ModelFetcher::new(credentials(Some((Provider::OpenAi, key())))).with_base_url(&server.url);
-        let models = ids(fetcher.fetch(Provider::OpenAi).await.unwrap());
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::openai(), key())))).with_base_url(&server.url);
+        let models = ids(fetcher.fetch(&Provider::openai()).await.unwrap());
         assert_eq!(models.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), ["gpt-4.1", "gpt-4o", "o3-mini"]);
         assert_eq!(server.requests()[0].header("authorization"), Some("Bearer sk-test"));
     }
@@ -245,16 +276,16 @@ mod tests {
     async fn anthropic_models_keep_their_display_names() {
         let body = r#"{"data":[{"id":"claude-sonnet-4-5","display_name":"Claude Sonnet 4.5","type":"model","max_input_tokens":200000},{"id":"claude-x"}]}"#;
         let server = serve("/v1/models", body).await;
-        let fetcher = ModelFetcher::new(credentials(Some((Provider::Anthropic, key())))).with_base_url(&server.url);
-        let Fetched::Models(models) = fetcher.fetch(Provider::Anthropic).await.unwrap() else {
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::anthropic(), key())))).with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::anthropic()).await.unwrap() else {
             panic!("expected models")
         };
         assert_eq!(models[0].id, "claude-sonnet-4-5");
-        assert_eq!(models[0].name, "Claude Sonnet 4.5");
-        assert_eq!(models[1].name, "claude-x");
+        assert_eq!(models[0].display_name(), "Claude Sonnet 4.5");
+        assert_eq!(models[1].display_name(), "claude-x");
         let limits: Vec<_> = models.iter().map(|m| m.context_limit).collect();
         assert_eq!(limits, [Some(200_000), None]);
-        assert!(models.iter().all(|m| m.protocol == Protocol::Anthropic));
+        assert!(models.iter().all(|m| m.protocol.is_none()));
 
         let request = &server.requests()[0];
         assert_eq!(request.path, "/v1/models?limit=1000");
@@ -275,22 +306,22 @@ mod tests {
         let server = serve("/models", body).await;
         let token =
             Credential::Oauth { refresh: "gh".into(), access: "copilot-tok".into(), expires: now_ms() + 3_600_000 };
-        let fetcher = ModelFetcher::new(credentials(Some((Provider::Copilot, token)))).with_base_url(&server.url);
-        let Fetched::Models(models) = fetcher.fetch(Provider::Copilot).await.unwrap() else {
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::copilot(), token)))).with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::copilot()).await.unwrap() else {
             panic!("expected models")
         };
 
-        let summary: Vec<(&str, Protocol)> = models.iter().map(|m| (m.id.as_str(), m.protocol)).collect();
+        let summary: Vec<(&str, Option<Protocol>)> = models.iter().map(|m| (m.id.as_str(), m.protocol)).collect();
         assert_eq!(
             summary,
             [
-                ("both", Protocol::OpenAi),
-                ("claude-sonnet-4.5", Protocol::Anthropic),
-                ("gpt-4.1", Protocol::OpenAi),
-                ("gpt-5-codex", Protocol::Responses)
+                ("both", Some(Protocol::OpenAi)),
+                ("claude-sonnet-4.5", Some(Protocol::Anthropic)),
+                ("gpt-4.1", Some(Protocol::OpenAi)),
+                ("gpt-5-codex", Some(Protocol::Responses))
             ]
         );
-        assert_eq!(models[1].name, "Claude Sonnet 4.5");
+        assert_eq!(models[1].display_name(), "Claude Sonnet 4.5");
         assert_eq!(models[1].context_limit, Some(200_000), "the prompt limit, not the window");
         assert_eq!(models[0].context_limit, None);
 
@@ -301,11 +332,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn google_models_are_listed_with_their_input_limit() {
+        let body = r#"{"models":[
+            {"name":"models/gemini-2.5-pro","displayName":"Gemini 2.5 Pro","inputTokenLimit":1048576,
+             "supportedGenerationMethods":["generateContent","countTokens"]},
+            {"name":"models/text-embedding-004","displayName":"Embedding",
+             "supportedGenerationMethods":["embedContent"]}]}"#;
+        let server = serve("/v1beta/models", body).await;
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::google(), key())))).with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::google()).await.unwrap() else {
+            panic!("expected models")
+        };
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gemini-2.5-pro");
+        assert_eq!(models[0].display_name(), "Gemini 2.5 Pro");
+        assert_eq!(models[0].context_limit, Some(1_048_576));
+
+        let request = &server.requests()[0];
+        assert_eq!(request.path, "/v1beta/models");
+        assert_eq!(request.header("x-goog-api-key"), Some("sk-test"));
+    }
+
+    #[tokio::test]
     async fn a_provider_without_credentials_is_skipped_without_a_request() {
         let server = serve("/models", r#"{"data":[]}"#).await;
         let fetcher = ModelFetcher::new(credentials(None)).with_base_url(&server.url);
-        for provider in Provider::LOGINS {
-            assert_eq!(fetcher.fetch(provider).await.unwrap(), Fetched::NoCredentials);
+        for provider in Provider::logins() {
+            assert_eq!(fetcher.fetch(&provider).await.unwrap(), Fetched::NoCredentials);
         }
         assert!(server.requests().is_empty());
     }
@@ -314,11 +367,11 @@ mod tests {
     async fn http_errors_and_rejected_keys_are_errors() {
         let server = MockServer::start(vec![("/models", vec![(500, "{}".into())])]).await;
         let fetcher = ModelFetcher::new(credentials(None)).with_base_url(&server.url);
-        assert!(matches!(fetcher.fetch(Provider::Ollama).await, Err(ClientError::Http(_))));
+        assert!(matches!(fetcher.fetch(&Provider::ollama()).await, Err(ClientError::Http(_))));
 
         let rejecting = MockServer::start(vec![("/models", vec![(401, "{}".into())])]).await;
-        let keyed = ModelFetcher::new(credentials(Some((Provider::OpenAi, key())))).with_base_url(&rejecting.url);
-        let err = keyed.fetch(Provider::OpenAi).await.unwrap_err();
+        let keyed = ModelFetcher::new(credentials(Some((Provider::openai(), key())))).with_base_url(&rejecting.url);
+        let err = keyed.fetch(&Provider::openai()).await.unwrap_err();
         assert!(err.to_string().contains("rejected"), "{err}");
     }
 
@@ -326,14 +379,14 @@ mod tests {
     async fn an_unexpected_body_is_an_error() {
         let server = serve("/models", r#"{"surprise":true}"#).await;
         let fetcher = ModelFetcher::new(credentials(None)).with_base_url(&server.url);
-        fetcher.fetch(Provider::Ollama).await.unwrap_err();
+        fetcher.fetch(&Provider::ollama()).await.unwrap_err();
     }
 
     #[tokio::test]
     #[ignore = "needs a local Ollama server"]
     async fn the_real_ollama_lists_its_models() {
         let fetcher = ModelFetcher::new(credentials(None));
-        let models = ids(fetcher.fetch(Provider::Ollama).await.unwrap());
+        let models = ids(fetcher.fetch(&Provider::ollama()).await.unwrap());
         assert_not_empty(&models);
     }
 }

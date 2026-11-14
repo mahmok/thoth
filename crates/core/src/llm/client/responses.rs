@@ -464,7 +464,7 @@ fn translate(messages: &[Message]) -> (Option<String>, Vec<Input<'_>>) {
             Role::Assistant => {
                 input.extend(message.reasoning.iter().filter_map(|kept| match *kept {
                     Reasoning::Responses(ref item) => Some(Input::Kept(item)),
-                    Reasoning::Anthropic(_) => None,
+                    Reasoning::Anthropic(_) | Reasoning::Google(_) => None,
                 }));
                 if let Some(content) = text {
                     input.push(Input::Message { role: "assistant", content });
@@ -522,7 +522,7 @@ mod tests {
         use crate::auth::store::Credentials as CredentialStore;
         use crate::llm::provider::{Protocol, Provider};
 
-        let auth = Auth::new(Provider::Ollama, Protocol::Responses, Arc::new(CredentialStore::in_memory()));
+        let auth = Auth::new(Provider::ollama(), Protocol::Responses, Arc::new(CredentialStore::in_memory()));
         let client = Client::new(Config { model: "m".into(), auth });
         let tools = [ToolSpec { name: "t".into(), description: "d".into(), parameters: json!({ "type": "object" }) }];
         let ask = |listed, tool_choice| CreateCompletionRequest { tools: listed, tool_choice, ..Default::default() };
@@ -542,7 +542,7 @@ mod tests {
         use crate::auth::store::Credentials as CredentialStore;
         use crate::llm::provider::{Protocol, Provider};
 
-        let auth = Auth::new(Provider::Ollama, Protocol::Responses, Arc::new(CredentialStore::in_memory()));
+        let auth = Auth::new(Provider::ollama(), Protocol::Responses, Arc::new(CredentialStore::in_memory()));
         let client = Client::new(Config { model: "m".into(), auth });
         let request = CreateCompletionRequest::default();
         let first = client.body_json(&request, Setting::Nothing);

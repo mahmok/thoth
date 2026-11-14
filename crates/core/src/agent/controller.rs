@@ -122,13 +122,13 @@ mod tests {
     use crate::llm::client::error::Failure as ClientError;
     use crate::llm::client::fake;
     use crate::llm::client::fake::Client as FakeClient;
-    use crate::llm::provider::{ModelSpec, Protocol, Provider};
+    use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use tokio::time;
 
     fn controller(script: Vec<Result<StreamedCompletion, ClientError>>) -> TokioAgent {
         let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-            .with_model(ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "m"))
+            .with_model(ModelSpec::new(Arc::new(Provider::ollama()), Model::new("m")))
             .with_client(AnyClient::Fake(FakeClient::new(script)));
         TokioAgent::new(Arc::new(agent))
     }
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn settings_are_the_agents_and_changes_reach_it() {
         let link = controller(Vec::new());
-        assert_eq!(link.settings().model.map(|m| m.id), Some("m".to_owned()));
+        assert_eq!(link.settings().model.map(|m| m.model.id), Some("m".to_owned()));
         link.apply(AgentChange::SetThinking(Thinking::High));
         assert_eq!(link.settings().thinking, Thinking::High);
     }

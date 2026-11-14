@@ -11,15 +11,12 @@ use crate::llm::client::StreamedCompletion;
 use crate::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
 use crate::llm::client::error::Failure as ClientError;
 use crate::llm::client::fake::Client as FakeClient;
-use crate::llm::provider::{ModelSpec, Protocol, Provider};
+use crate::llm::provider::Model;
+use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::persona::{Persona, Repository as PersonaRepository, Selection};
 use crate::test::temp_tree::TempTree;
 
 pub type Script = Vec<Result<StreamedCompletion, ClientError>>;
-
-fn spec() -> ModelSpec {
-    ModelSpec::new(Provider::Ollama, Protocol::OpenAi, "m")
-}
 
 /// The Root's own Persona, a Persona with every tool, and one that only reads.
 pub fn personas() -> Arc<PersonaRepository> {
@@ -29,7 +26,7 @@ pub fn personas() -> Arc<PersonaRepository> {
         Persona::new("tester", "Tester", "writes tests"),
         Persona::new("reader", "Reader", "only reads").with_tools(Selection::Only(vec!["read_file".into()])),
     ] {
-        registry.add(persona.with_model(spec())).unwrap();
+        registry.add(persona.with_model(Model::reference("ollama", "m"))).unwrap();
     }
     Arc::new(registry)
 }
@@ -42,6 +39,7 @@ pub fn root(script: Script, limits: Delegation) -> (Agent, FakeClient) {
     let builder = Arc::new(
         AgentBuilder::new(
             Arc::new(CredentialStore::in_memory()),
+            Arc::new(InMemoryModelsStore::default()),
             tree.workspace(),
             AgentContext::new(tree.path()),
             SkillSet::default(),
