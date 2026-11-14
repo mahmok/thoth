@@ -186,6 +186,11 @@ pub(super) trait ErasedTool: Debug + Send + Sync {
     /// derived from arguments, because the caller has none.
     fn is_read_only(&self) -> bool;
 
+    /// Whether `value` deserialises as this Tool's arguments. Used only to prove a Tool's schema
+    /// and its arguments type agree.
+    #[cfg(test)]
+    fn accepts(&self, value: &Value) -> bool;
+
     fn tool_name(&self) -> &'static str;
     fn traits_for_call(&self, raw_arguments: &str) -> Traits;
 }
@@ -229,6 +234,11 @@ impl<T: Tool> ErasedTool for T {
 
     fn is_read_only(&self) -> bool {
         self.traits().read_only
+    }
+
+    #[cfg(test)]
+    fn accepts(&self, value: &Value) -> bool {
+        serde_json::from_value::<T::Args>(value.clone()).is_ok()
     }
 
     /// Arguments that do not parse never run, so their call gets the static traits.

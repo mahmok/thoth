@@ -57,6 +57,7 @@ mod testing;
 mod tests {
     use super::*;
     use crate::test::temp_tree::TempTree;
+    use serde_json::Value;
 
     #[test]
     fn only_the_tools_that_change_nothing_are_read_only() {
@@ -79,5 +80,55 @@ mod tests {
             names,
             ["read_file", "list_directory", "search_files", "find_files", "edit_file", "write_file", "bash", "invoke_skill"]
         );
+    }
+
+    #[test]
+    fn every_tool_schema_accepts_a_sample_of_its_own_arguments() {
+        let tree = TempTree::new("schema-samples");
+        let tools = builtin(tree.workspace());
+        for spec in tools.definitions() {
+            let (sample, required) = sample_arguments(&spec.parameters);
+            assert!(
+                tools.accepts(&spec.name, &sample),
+                "{}: arguments built from its own schema were rejected",
+                spec.name
+            );
+            let fields: Vec<String> = sample.as_object().expect("a schema is an object").keys().cloned().collect();
+            for field in fields {
+                let mut missing = sample.clone();
+                drop(missing.as_object_mut().expect("an object").remove(&field));
+                let omitted = tools.accepts(&spec.name, &missing);
+                assert_eq!(
+                    !omitted,
+                    required.contains(&field),
+                    "{}: `{field}` is listed as required={} but omitting it parsed={omitted}",
+                    spec.name,
+                    required.contains(&field)
+                );
+            }
+        }
+    }
+
+    /// An argument value of the kind a schema names, and the fields it calls required.
+    fn sample_arguments(schema: &Value) -> (Value, Vec<String>) {
+        fn value(schema: &Value) -> Value {
+            match schema.get("type").and_then(Value::as_str) {
+                Some("array") => Value::Array(Vec::new()),
+                Some("boolean") => Value::Bool(false),
+                Some("integer" | "number") => Value::from(1),
+                Some("object") => Value::Object(serde_json::Map::new()),
+                Some("string") => Value::from("x"),
+                _ => Value::Null,
+            }
+        }
+        let empty = serde_json::Map::new();
+        let properties = schema.get("properties").and_then(Value::as_object).unwrap_or(&empty);
+        let sample = properties.iter().map(|(name, field)| (name.clone(), value(field))).collect();
+        let required = schema
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        (Value::Object(sample), required)
     }
 }

@@ -8,7 +8,6 @@ pub(super) struct InvokeSkill {}
 
 #[derive(Debug, Deserialize)]
 pub(super) struct InvokeSkillArgs {
-    #[serde(default)]
     name: String,
 }
 

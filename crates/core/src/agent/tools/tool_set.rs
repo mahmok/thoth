@@ -109,6 +109,13 @@ impl ToolSet {
         self.find(name).is_some_and(|tool| tool.is_read_only())
     }
 
+    /// Whether `value` parses as the arguments of the Tool called `name`, so a test can prove the
+    /// schema a Tool shows the model is the arguments it accepts.
+    #[cfg(test)]
+    pub(super) fn accepts(&self, name: &str, value: &serde_json::Value) -> bool {
+        self.find(name).is_some_and(|tool| tool.accepts(value))
+    }
+
     /// The traits of one call; an unknown tool has the cautious defaults.
     #[must_use]
     #[inline]
