@@ -4,7 +4,7 @@ use std::fs;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, blocking};
+use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, blocking};
 use crate::workspace::Workspace;
 #[derive(Debug)]
 
@@ -30,9 +30,12 @@ impl Tool for WriteFile {
     type Args = WriteFileArgs;
 
     fn describe(&self) -> Description {
-        Description { description: "Create a text file with the given content, making any missing parent directories. \
+        Description {
+            description: "Create a text file with the given content, making any missing parent directories. \
          If the file already exists it is replaced whole, so for a change to an existing file read it \
-         and use edit_file instead. Paths are relative to the working directory and must stay inside it.", name: "write_file" }
+         and use edit_file instead. Paths are relative to the working directory and must stay inside it.",
+            name: "write_file",
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -54,7 +57,6 @@ impl Tool for WriteFile {
     fn summary(&self, args: &WriteFileArgs) -> String {
         args.path.clone()
     }
-
 }
 
 /// Runs `write_file`: creates or replaces a file.

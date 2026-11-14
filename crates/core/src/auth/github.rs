@@ -10,13 +10,9 @@ use super::Failure as AuthError;
 use super::copilot::{FIXED_HEADERS, REFRESH_MARGIN_MS, USER_AGENT};
 use super::credential::Credential;
 
-/// The OAuth client id of the Copilot app.
 const CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
-/// The OAuth scope requested.
 const SCOPE: &str = "read:user";
-/// The polling interval when GitHub gives none.
 const DEFAULT_INTERVAL_SECS: u64 = 5;
-/// How much longer to wait when GitHub says to slow down.
 const SLOW_DOWN_SECS: u64 = 5;
 
 #[derive(Debug, Clone)]

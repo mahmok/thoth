@@ -7,20 +7,13 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-/// A stored login.
 pub enum Credential {
-    /// A key the user pasted.
     ApiKey {
-        /// The key.
         key: String,
     },
-    /// A token that is renewed.
     Oauth {
-        /// The token that gets new access tokens.
         refresh: String,
-        /// The token that authorises requests.
         access: String,
-        /// When `access` stops working, in milliseconds since the epoch.
         expires: u64,
     },
 }

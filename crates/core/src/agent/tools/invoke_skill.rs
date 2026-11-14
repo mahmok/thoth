@@ -1,4 +1,4 @@
-use super::tool::{Description, Context, Outcome, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Context, Description, Outcome, Tool, Traits as ToolTraits, blocking};
 use crate::agent::skills::SkillSet;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -40,7 +40,6 @@ impl Tool for InvokeSkill {
     fn traits(&self) -> ToolTraits {
         ToolTraits::read_only()
     }
-
 }
 
 fn get_skill_block(skill_set: &SkillSet, name: &str) -> Result<String, String> {

@@ -2,7 +2,7 @@ use core::fmt::Write as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Description, Context as ToolContext, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
 use super::walk::{MAX_DEPTH, PathFilter, walk};
 use crate::workspace::{Workspace, current_dir};
 
@@ -33,9 +33,12 @@ impl Tool for FindFiles {
     type Args = FindFilesArgs;
 
     fn describe(&self) -> Description {
-        Description { description: "Find files whose path or name matches a glob, such as \"*.rs\", \"Cargo.toml\" or \"src/**/test_*.py\", under a directory. \
+        Description {
+            description: "Find files whose path or name matches a glob, such as \"*.rs\", \"Cargo.toml\" or \"src/**/test_*.py\", under a directory. \
          The directory can be in the working directory or anywhere else on disk. .gitignore'd files and build directories are skipped. \
-         Returns one path per line; use search_files to look inside files.", name: "find_files" }
+         Returns one path per line; use search_files to look inside files.",
+            name: "find_files",
+        }
     }
 
     fn parameters(&self) -> Value {
@@ -61,7 +64,6 @@ impl Tool for FindFiles {
     fn traits(&self) -> ToolTraits {
         ToolTraits::read_only()
     }
-
 }
 
 /// Runs `find_files`: files whose path matches a glob.
