@@ -1,7 +1,7 @@
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 
 use serde::Deserialize;
-use std::collections::BTreeMap;
 
 use crate::auth::Auth;
 use crate::auth::store::Credentials as CredentialStore;
@@ -25,6 +25,13 @@ const NOT_CHAT: [&str; 11] = [
 ];
 /// The Copilot API version sent.
 const COPILOT_API_VERSION: &str = "2026-06-01";
+/// The dialects a gateway may advertise, in the order the clients support them.
+const GATEWAY_DIALECTS: [(&str, Protocol); 4] = [
+    ("chat-completions", Protocol::OpenAi),
+    ("responses", Protocol::Responses),
+    ("messages", Protocol::Anthropic),
+    ("generate-content", Protocol::Google),
+];
 
 #[derive(Debug, PartialEq, Eq)]
 /// The result of fetching models.
@@ -203,13 +210,7 @@ impl ModelFetcher {
             .data
             .into_iter()
             .filter_map(|model| {
-                let protocol = match model.api.keys().next()?.as_str() {
-                    "chat-completions" => Protocol::OpenAi,
-                    "responses" => Protocol::Responses,
-                    "messages" => Protocol::Anthropic,
-                    "generate-content" => Protocol::Google,
-                    _ => return None,
-                };
+                let protocol = gateway_protocol(&model.api)?;
                 if !model.capabilities.tools.supported {
                     return None;
                 }
@@ -288,6 +289,11 @@ impl ModelFetcher {
         self.base_url = Some(base_url.to_owned());
         self
     }
+}
+
+/// The dialect a gateway model speaks: the first one its `api` keys advertise that a client supports.
+fn gateway_protocol(api: &BTreeMap<String, serde_json::Value>) -> Option<Protocol> {
+    GATEWAY_DIALECTS.iter().find(|(key, _)| api.contains_key(*key)).map(|(_, protocol)| *protocol)
 }
 
 #[cfg(test)]
@@ -459,6 +465,30 @@ mod tests {
         let request = &server.requests()[0];
         assert_eq!(request.path, "/v1/models", "the list is at the root, not the OpenAI prefix");
         assert_eq!(request.header("authorization"), Some("Bearer sk-test"));
+    }
+
+    #[tokio::test]
+    async fn gateway_models_take_the_first_supported_dialect_not_the_first_key() {
+        let body = r#"{"data":[
+            {"id":"advertised-first","api":{"experimental":{},"responses":{}},
+                "capabilities":{"tools":{"supported":true}}},
+            {"id":"two-supported","api":{"messages":{},"responses":{}},
+                "capabilities":{"tools":{"supported":true}}}
+        ]}"#;
+        let server = serve("/v1/models", body).await;
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::builtin("opencode-go").unwrap(), key()))))
+            .with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::builtin("opencode-go").unwrap()).await.unwrap() else {
+            panic!("expected models")
+        };
+
+        let summary: Vec<(&str, Protocol)> =
+            models.iter().map(|model| (model.id.as_str(), model.protocol.unwrap())).collect();
+        assert_eq!(
+            summary,
+            [("advertised-first", Protocol::Responses), ("two-supported", Protocol::Responses)],
+            "a supported dialect wins over both an unknown key and the map's order"
+        );
     }
 
     #[tokio::test]
