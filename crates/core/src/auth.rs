@@ -99,7 +99,7 @@ impl Auth {
     pub fn for_model(spec: &ModelSpec, store: Arc<CredentialStore>, session: SessionId) -> Self {
         let protocol = spec.protocol();
         Self::new(spec.provider.as_ref().clone(), protocol, store)
-            .with_base_url(spec.provider.base_url_for(protocol))
+            .with_base_url(&spec.provider.base_url_for(protocol))
             .with_session(session)
     }
 
@@ -114,7 +114,7 @@ impl Auth {
     #[inline]
     pub fn new(provider: Provider, protocol: Protocol, store: Arc<CredentialStore>) -> Self {
         Self {
-            base_url: provider.base_url_for(protocol).to_owned(),
+            base_url: provider.base_url_for(protocol).into_owned(),
             provider,
             protocol,
             session: None,
@@ -443,6 +443,32 @@ mod tests {
 
         let expected = session.to_string();
         assert_eq!(server.requests()[0].header("x-opencode-session"), Some(expected.as_str()));
+    }
+
+    #[tokio::test]
+    async fn the_gateway_receives_the_session_id_and_other_providers_do_not() {
+        let server = ok_server().await;
+        let store = store();
+        store.write(&Provider::builtin("opencode-go").unwrap(), key("sk-go")).unwrap();
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-openai")).unwrap();
+        let session = SessionId::mint();
+        let expected = session.to_string();
+
+        post(
+            &auth(Provider::builtin("opencode-go").unwrap(), Protocol::OpenAi, Arc::clone(&store))
+                .with_session(session),
+            &server,
+            &[],
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.requests()[0].header("x-opencode-session"), Some(expected.as_str()));
+        assert_eq!(server.requests()[0].header("authorization"), Some("Bearer sk-go"));
+
+        post(&auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store).with_session(session), &server, &[])
+            .await
+            .unwrap();
+        assert_eq!(server.requests()[1].header("x-opencode-session"), None);
     }
 
     #[tokio::test]

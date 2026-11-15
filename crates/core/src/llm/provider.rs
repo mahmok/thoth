@@ -1,13 +1,15 @@
+use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use core::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The built-in providers, in the order the menus show them.
-pub const BUILTIN_IDS: [&str; 6] = ["ollama", "openai", "anthropic", "github-copilot", "google", "deepseek"];
+pub const BUILTIN_IDS: [&str; 7] =
+    ["ollama", "openai", "anthropic", "github-copilot", "google", "deepseek", "opencode-go"];
 
 /// The built-in providers that need a login, in the order the menus show them.
-pub const LOGIN_IDS: [&str; 5] = ["github-copilot", "openai", "anthropic", "google", "deepseek"];
+pub const LOGIN_IDS: [&str; 6] = ["github-copilot", "openai", "anthropic", "google", "deepseek", "opencode-go"];
 
 /// One provider of models: a built-in or a gateway the user configured.
 ///
@@ -141,6 +143,15 @@ impl Provider {
                 "https://generativelanguage.googleapis.com",
             )
             .with_env_var(Some("GOOGLE_API_KEY")),
+            "opencode-go" => Self::new(
+                "opencode-go",
+                "OpenCode Go",
+                LoginMethod::ApiKey,
+                Protocol::OpenAi,
+                "https://opencode.ai/inference/go",
+            )
+            .with_env_var(Some("OPENCODE_API_KEY"))
+            .with_session_header(Some("x-opencode-session")),
             _ => return None,
         })
     }
@@ -171,14 +182,21 @@ impl Provider {
     }
 
     /// The base URL for a protocol. Ollama serves the OpenAI-compatible API under `/v1`
-    /// and its Anthropic-compatible API at the root, so the two differ.
+    /// and its Anthropic-compatible API at the root, so the two differ. A gateway stores its
+    /// root and derives the prefix each dialect lives under.
     #[must_use]
     #[inline]
-    pub fn base_url_for(&self, protocol: Protocol) -> &str {
-        match (self.id.as_str(), protocol) {
-            ("ollama", Protocol::Anthropic) => self.base_url.strip_suffix("/v1").unwrap_or(&self.base_url),
-            _ => &self.base_url,
-        }
+    pub fn base_url_for(&self, protocol: Protocol) -> Cow<'_, str> {
+        let suffix = match (self.id.as_str(), protocol) {
+            ("ollama", Protocol::Anthropic) => {
+                return Cow::Borrowed(self.base_url.strip_suffix("/v1").unwrap_or(&self.base_url));
+            },
+            ("opencode-go", Protocol::OpenAi | Protocol::Responses) => "/openai/v1",
+            ("opencode-go", Protocol::Anthropic) => "/anthropic",
+            ("opencode-go", Protocol::Google) => "/google",
+            _ => return Cow::Borrowed(&self.base_url),
+        };
+        Cow::Owned(format!("{}{suffix}", self.base_url))
     }
 
     #[must_use]
@@ -212,6 +230,13 @@ impl Provider {
     #[inline]
     pub fn with_env_var(mut self, env_var: Option<&str>) -> Self {
         self.env_var = env_var.map(str::to_owned);
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn with_session_header(mut self, session_header: Option<&str>) -> Self {
+        self.session_header = session_header.map(str::to_owned);
         self
     }
 
@@ -440,10 +465,26 @@ mod tests {
     }
 
     #[test]
+    fn the_gateway_is_last_in_the_provider_and_login_menus() {
+        assert_eq!(Provider::builtins().last().unwrap().id, "opencode-go");
+        assert_eq!(Provider::logins().last().unwrap().id, "opencode-go");
+    }
+
+    #[test]
     fn only_local_builtins_skip_login_and_the_others_are_offered_for_login() {
         assert_eq!(builtin("ollama").login_method(), LoginMethod::None);
         assert!(Provider::logins().iter().all(|p| p.login_method() != LoginMethod::None));
         assert_eq!(Provider::logins().into_iter().map(|p| p.id).collect::<Vec<_>>(), LOGIN_IDS);
+    }
+
+    #[test]
+    fn opencode_go_is_a_builtin_gateway_that_takes_an_api_key() {
+        let provider = builtin("opencode-go");
+        assert_eq!(provider.display_name(), "OpenCode Go");
+        assert_eq!(provider.login_method(), LoginMethod::ApiKey);
+        assert_eq!(provider.env_var(), Some("OPENCODE_API_KEY"));
+        assert_eq!(provider.protocol, Protocol::OpenAi);
+        assert_eq!(provider.base_url, "https://opencode.ai/inference/go");
     }
 
     #[test]
@@ -483,6 +524,12 @@ mod tests {
             "https://api.individual.githubcopilot.com"
         );
         assert_eq!(builtin("google").base_url_for(Protocol::Google), "https://generativelanguage.googleapis.com");
+
+        let gateway = builtin("opencode-go");
+        assert_eq!(gateway.base_url_for(Protocol::OpenAi), "https://opencode.ai/inference/go/openai/v1");
+        assert_eq!(gateway.base_url_for(Protocol::Responses), "https://opencode.ai/inference/go/openai/v1");
+        assert_eq!(gateway.base_url_for(Protocol::Anthropic), "https://opencode.ai/inference/go/anthropic");
+        assert_eq!(gateway.base_url_for(Protocol::Google), "https://opencode.ai/inference/go/google");
     }
 
     #[test]
@@ -504,8 +551,14 @@ mod tests {
     }
 
     #[test]
-    fn no_builtin_provider_asks_for_a_session_header() {
-        assert!(Provider::builtins().iter().all(|provider| provider.session_header.is_none()));
+    fn only_the_gateway_asks_for_a_session_header() {
+        assert_eq!(builtin("opencode-go").session_header.as_deref(), Some("x-opencode-session"));
+        assert!(
+            Provider::builtins()
+                .iter()
+                .filter(|provider| provider.id != "opencode-go")
+                .all(|provider| provider.session_header.is_none())
+        );
     }
 
     #[test]
