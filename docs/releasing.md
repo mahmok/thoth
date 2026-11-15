@@ -1,6 +1,6 @@
 # Releasing
 
-Releases are two manual steps: prepare, then publish. Both are GitHub Actions
+Releasing is two manual steps: prepare, then publish. Both are GitHub Actions
 workflows; there is nothing to run locally.
 
 The split exists because the version has to be reviewed before the tag exists.
@@ -36,8 +36,10 @@ release PR.
 
 `.github/workflows/publish-release.yml`, dispatched from the Actions tab, runs in order:
 
-1. **verify** — `cargo fmt --check`, `cargo clippy -D warnings` and `cargo test` on the
-   commit being released. A red job means the release is not published.
+1. **verify** — `cargo fmt --check`, `cargo clippy` and `cargo test` on the commit being
+   released. A red job means the release is not published. Clippy blocks on compile
+   errors only: the workspace lints pedantic and nursery at `warn` and the tree still has
+   findings, so it is not yet a `-D warnings` gate.
 2. **release** — release-plz creates the `v<version>` tag and the GitHub Release, whose
    body is the new changelog section.
 3. **build** — one native runner per target, each running `dist build` from
@@ -54,7 +56,9 @@ release PR.
 
    Each job runs the binary it built (`thoth --version`) before uploading, so a broken
    artifact fails the release instead of shipping.
-4. **verify assets** — fails if any target is missing its archive or checksum.
+4. **aggregate checksums** — publishes one `sha256.sum` covering every archive.
+5. **verify assets** — fails if any target is missing its archive, its checksum, or
+   `sha256.sum` is absent.
 
 The workflow takes an optional `tag` input. Leave it empty: the tag is derived from the
 workspace version. The override exists to re-run a release whose uploads failed, and it
@@ -93,9 +97,9 @@ on this ruleset. Nothing unchecked ships anyway, because **Publish release** re-
 
 ## What a release looks like
 
-Assets per target: `thoth-<target>.tar.xz` (`.zip` on Windows), the same file with a
-`.sha256` suffix, and a single `sha256.sum` covering all of them. Each archive holds
-the binary and `LICENSE`.
+Assets per target: `thoth-<target>.tar.xz` (`.zip` on Windows) beside a `.sha256` file
+for that archive, plus one `sha256.sum` covering all of them. Each archive holds the
+binary and `LICENSE`.
 
 Binaries are not code-signed: macOS quarantines downloaded binaries
 (`xattr -d com.apple.quarantine ./thoth`) and Windows SmartScreen warns on first run.

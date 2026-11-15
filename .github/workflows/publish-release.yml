@@ -148,9 +148,29 @@ jobs:
         shell: bash
         run: find target/distrib -maxdepth 1 -type f -print0 | xargs -0 gh release upload "$TAG" --clobber
 
+  checksums:
+    name: aggregate checksums
+    needs: [release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - name: Publish one sha256.sum over every archive
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'thoth-*.tar.xz' --pattern 'thoth-*.zip' --dir dist
+          ( cd dist && sha256sum thoth-* > sha256.sum )
+          cat dist/sha256.sum
+          gh release upload "$TAG" dist/sha256.sum --repo "$GITHUB_REPOSITORY" --clobber
+
   verify-assets:
     name: verify assets
-    needs: [release, build]
+    needs: [release, build, checksums]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -164,6 +184,10 @@ jobs:
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | sort > assets.txt
           cat assets.txt
           status=0
+          grep -qx sha256.sum assets.txt || {
+            echo "::error::missing sha256.sum"
+            status=1
+          }
           for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
                         x86_64-apple-darwin aarch64-apple-darwin \
                         x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
