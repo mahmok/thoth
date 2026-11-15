@@ -46,7 +46,7 @@ impl Client {
                 choice.forbids(tools).then_some("none"),
             ),
             store: false,
-            prompt_cache_key: self.config.auth.session_id().map(|session| session.to_string()),
+            prompt_cache_key: self.config.auth.prompt_cache_key(),
             input: &prompt.input,
             // Stateless mode: the server keeps nothing, so reasoning comes back to us
             // (encrypted) and is sent again with the next request.
