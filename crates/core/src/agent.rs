@@ -30,6 +30,7 @@ use crate::llm::client::chat::Usage;
 use crate::llm::client::error::Failure as ClientError;
 use crate::llm::provider::ModelSpec;
 use crate::llm::thinking::Thinking;
+use crate::session::SessionId;
 use crate::sync::{MutexExt as _, RwLockExt as _};
 use crate::utils::numbers;
 use alloc::fmt;
@@ -190,6 +191,7 @@ pub struct Agent {
     description: String,
     max_steps: usize,
     name: String,
+    session: SessionId,
     skills: SkillSet,
     store: Arc<CredentialStore>,
     sub_agents: Arc<SubAgents>,
@@ -299,7 +301,8 @@ impl Agent {
     }
 
     #[inline]
-    /// Creates an Agent with no model, no Tools and an empty Conversation.
+    /// Creates an Agent with no model, no Tools and an empty Conversation. It mints an id of its
+    /// own; an Agent built for a Session is given that Session's id instead.
     pub fn new(store: Arc<CredentialStore>) -> Self {
         Self {
             store,
@@ -315,6 +318,7 @@ impl Agent {
             calibration: sync::Mutex::new(1.0),
             name: String::new(),
             description: String::new(),
+            session: SessionId::mint(),
         }
     }
 
@@ -339,7 +343,7 @@ impl Agent {
     #[inline]
     /// Switches to `spec`, with a client of its own, and restarts token calibration.
     fn set_model(&self, spec: ModelSpec) {
-        let client = AnyClient::for_model(&spec, &self.store).map(Arc::new).map_err(|e| e.to_string());
+        let client = AnyClient::for_model(&spec, &self.store, self.session).map(Arc::new).map_err(|e| e.to_string());
         *self.current.write_unpoisoned() = Some(Current { client, spec });
         // Another model counts tokens its own way.
         *self.calibration.lock_unpoisoned() = 1.0;
@@ -439,11 +443,26 @@ impl Agent {
         self
     }
 
+    /// The Session this Agent belongs to, whose id every request of its clients carries.
+    #[must_use]
+    #[inline]
+    pub const fn session_id(&self) -> SessionId {
+        self.session
+    }
+
     /// The Sub-agents this Agent may start and reach.
     #[inline]
     #[must_use]
     pub fn with_sub_agents(mut self, sub_agents: Arc<SubAgents>) -> Self {
         self.sub_agents = sub_agents;
+        self
+    }
+
+    /// Gives the Agent the id of the Session it serves.
+    #[inline]
+    #[must_use]
+    pub const fn with_session_id(mut self, session: SessionId) -> Self {
+        self.session = session;
         self
     }
 

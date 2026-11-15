@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "testing"))]
 use crate::llm::client::any::Client as AnyClient;
 use alloc::sync::Arc;
 
@@ -18,6 +19,7 @@ use crate::llm::provider::ModelSpec;
 use crate::models::store::Models as ModelsStore;
 use crate::persona::Repository as PersonaRepository;
 use crate::persona::{Persona, Selection};
+use crate::session::SessionId;
 use crate::sync::MutexExt as _;
 use crate::workspace::Workspace;
 
@@ -42,13 +44,14 @@ pub struct AgentBuilder {
 }
 
 impl AgentBuilder {
-    /// Builds an Agent for `persona` with `tools`.
-    fn assemble(&self, persona: &Persona, tools: ToolSet, skill_set: SkillSet) -> Agent {
+    /// Builds an Agent for `persona` with `tools`, serving `session`.
+    fn assemble(&self, session: SessionId, persona: &Persona, tools: ToolSet, skill_set: SkillSet) -> Agent {
         let context = persona
             .system_prompt
             .as_ref()
             .map_or_else(|| self.context.clone(), |prompt| self.context.clone().with_system_prompt(prompt));
         let agent = Agent::new(Arc::clone(&self.store))
+            .with_session_id(session)
             .with_name(&persona.name)
             .with_description(&persona.description)
             .with_tools(tools)
@@ -73,10 +76,16 @@ impl AgentBuilder {
     }
 
     /// A new Agent playing `persona`, with a Conversation and settings of its own. It has no
-    /// delegation Tools, so a Sub-agent cannot start Sub-agents.
+    /// delegation Tools, so a Sub-agent cannot start Sub-agents, and it mints an id of its own:
+    /// a Sub-agent is a conversation of its own.
     #[inline]
     pub fn build(&self, persona: &Persona) -> Agent {
-        self.assemble(persona, tools_for(&self.workspace, &persona.tools), skills_for(&self.skills, &persona.skills))
+        self.assemble(
+            SessionId::mint(),
+            persona,
+            tools_for(&self.workspace, &persona.tools),
+            skills_for(&self.skills, &persona.skills),
+        )
     }
 
     /// A Root agent playing `persona`: it has the `delegate` Tool, and a registry of its own
@@ -88,7 +97,12 @@ impl AgentBuilder {
     /// # Panics
     ///
     /// Panics if a delegation Tool name collides with a built-in one.
-    pub fn build_root(self: Arc<Self>, persona: &Persona, personas: Arc<PersonaRepository>) -> Agent {
+    pub fn build_root(
+        self: Arc<Self>,
+        session: SessionId,
+        persona: &Persona,
+        personas: Arc<PersonaRepository>,
+    ) -> Agent {
         let subs = Arc::new(SubAgents::new(self.delegation));
         let mut tools = tools_for(&self.workspace, &persona.tools);
         let skill_set = skills_for(&self.skills, &persona.skills);
@@ -97,7 +111,7 @@ impl AgentBuilder {
         tools
             .register(MessageTool::new(Arc::clone(&self), Arc::clone(&subs)))
             .expect("message is not a built-in tool name");
-        self.assemble(persona, tools, skill_set).with_sub_agents(subs)
+        self.assemble(session, persona, tools, skill_set).with_sub_agents(subs)
     }
 
     /// Whether every Tool the Persona may use only reads, so its calls may run at the same time.
@@ -209,6 +223,10 @@ mod tests {
         Arc::new(CredentialStore::in_memory())
     }
 
+    fn session() -> SessionId {
+        SessionId::mint()
+    }
+
     fn offered(agent: &Agent) -> Vec<String> {
         agent.tools().definitions().map(|spec| spec.name.clone()).collect()
     }
@@ -296,13 +314,16 @@ mod tests {
         let tree = TempTree::new("builder-root");
         let builder =
             Arc::new(builder(&tree).with_delegation(Delegation { max_per_session: 1, ..Delegation::default() }));
-        let root =
-            Arc::clone(&builder).build_root(&Persona::new("coding-assistant", "Coding Assistant", ""), registry());
+        let root = Arc::clone(&builder).build_root(
+            session(),
+            &Persona::new("coding-assistant", "Coding Assistant", ""),
+            registry(),
+        );
         let tester = Persona::new("tester", "Tester", "");
         root.sub_agents().spawn(&tester, || Agent::new(root_store())).unwrap();
         root.sub_agents().spawn(&tester, || Agent::new(root_store())).unwrap_err();
 
-        let other = builder.build_root(&Persona::new("secretary", "Secretary", ""), registry());
+        let other = builder.build_root(session(), &Persona::new("secretary", "Secretary", ""), registry());
         assert!(other.sub_agents().infos().is_empty(), "each root agent keeps its own sub-agents");
     }
 
@@ -312,9 +333,30 @@ mod tests {
         let fake = FakeClient::new(vec![Ok(StreamedCompletion { text: "hi".into(), ..Default::default() })]);
         let builder = Arc::new(builder(&tree).with_fake_client(fake.clone()));
         let persona = Persona::new("a", "A", "").with_model(Model::reference("ollama", "m"));
-        let root = builder.build_root(&persona, registry());
+        let root = builder.build_root(session(), &persona, registry());
         root.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(fake.requests().len(), 1);
+    }
+
+    #[test]
+    fn a_root_agent_carries_the_session_id_and_each_sub_agent_mints_its_own() {
+        let tree = TempTree::new("builder-session");
+        let builder = Arc::new(builder(&tree));
+        let session = session();
+        let root = Arc::clone(&builder).build_root(session, &Persona::new("root", "Root", ""), registry());
+        assert_eq!(root.session_id(), session);
+
+        let tester = Persona::new("tester", "Tester", "");
+        let build = Arc::clone(&builder);
+        let first = root.sub_agents().spawn(&tester, || build.build(&tester)).unwrap();
+        let build = Arc::clone(&builder);
+        let second = root.sub_agents().spawn(&tester, || build.build(&tester)).unwrap();
+        let (first, second) = (
+            root.sub_agents().get(&first).unwrap().agent.session_id(),
+            root.sub_agents().get(&second).unwrap().agent.session_id(),
+        );
+        assert_ne!(first, session, "a sub-agent is a conversation of its own");
+        assert_ne!(first, second, "each sub-agent mints its own id");
     }
 
     fn explorer() -> Persona {
