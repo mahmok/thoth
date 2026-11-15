@@ -134,17 +134,13 @@ impl GroupKill {
     const fn disarm(&mut self) {
         self.0 = None;
     }
-
-    fn fire(&mut self) {
-        if let Some(pid) = self.0.take() {
-            kill_group(pid);
-        }
-    }
 }
 
 impl Drop for GroupKill {
     fn drop(&mut self) {
-        self.fire();
+        if let Some(pid) = self.0.take() {
+            kill_group(pid);
+        }
     }
 }
 
@@ -155,7 +151,7 @@ fn kill_group(pid: u32) {
 }
 
 #[cfg(not(unix))]
-fn kill_group(_pid: u32) {}
+const fn kill_group(_pid: u32) {}
 
 fn drain(mut reader: impl AsyncRead + Unpin + Send + 'static, into: Shared) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -212,7 +208,7 @@ async fn execute(workspace: &Workspace, command: &str, timeout: Duration) -> Too
 
     let waited = time::timeout(timeout, child.wait()).await;
     if waited.is_err() {
-        group.fire();
+        drop(group);
         let _unused = child.kill().await;
     } else {
         group.disarm();

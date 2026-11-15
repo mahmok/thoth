@@ -4,7 +4,6 @@ use crate::agent::DEFAULT_MAX_STEPS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Limits on delegating to Sub-agents.
-#[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]
 pub struct Delegation {
     /// Sub-agents that may exist in one Session.
     pub max_per_session: usize,

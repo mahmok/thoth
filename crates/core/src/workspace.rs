@@ -35,6 +35,9 @@ impl Workspace {
         Self::new(env::current_dir()?)
     }
 
+    /// # Errors
+    ///
+    /// Fails if `path` cannot be resolved inside the Workspace.
     pub fn locate(&self, path: &str) -> Result<PathBuf, String> {
         self.root.join(path).canonicalize().map_err(|e| format!("cannot access `{path}`: {e}"))
     }
@@ -164,6 +167,7 @@ impl fmt::Display for Refusal {
     }
 }
 
+#[must_use]
 pub fn current_dir() -> String {
     ".".to_owned()
 }

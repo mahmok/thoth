@@ -2,7 +2,6 @@ use crate::llm::client::chat;
 
 /// One Turn's token usage, as a client shows it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]
 pub struct Usage {
     /// Part of `prompt_tokens`.
     pub cached_tokens: u32,

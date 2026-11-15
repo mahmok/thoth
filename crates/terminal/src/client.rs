@@ -57,17 +57,17 @@ impl Client {
     }
 
     /// Whether `provider` is logged in, and how.
-    pub fn login_state(&self, provider: Provider) -> LoginState {
+    pub fn login_state(&self, provider: &Provider) -> LoginState {
         self.harness.login_state(provider)
     }
 
     /// Starts a login to `provider`.
-    pub fn login(&mut self, provider: Provider) {
+    pub fn login(&mut self, provider: &Provider) {
         self.harness.login(provider);
     }
 
     /// Removes the saved login of `provider`.
-    pub fn logout(&mut self, provider: Provider) {
+    pub fn logout(&mut self, provider: &Provider) {
         self.harness.logout(provider);
     }
 

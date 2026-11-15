@@ -111,7 +111,7 @@ impl Harness {
 
     #[inline]
     /// Starts a login to `provider`.
-    pub fn login(&mut self, provider: Provider) {
+    pub fn login(&mut self, provider: &Provider) {
         let notices = self.logins.start(provider);
         self.show(Speaker::Login, notices);
         self.sync_view();
@@ -120,8 +120,8 @@ impl Harness {
     #[must_use]
     #[inline]
     /// Whether `provider` is logged in, and how.
-    pub fn login_state(&self, provider: Provider) -> LoginState {
-        match self.credentials.source(&provider) {
+    pub fn login_state(&self, provider: &Provider) -> LoginState {
+        match self.credentials.source(provider) {
             Some(Source::Stored(_)) => LoginState::Saved,
             Some(Source::Environment(_)) => LoginState::FromEnvironment,
             Some(Source::Local) | None => LoginState::NotLoggedIn,
@@ -136,7 +136,7 @@ impl Harness {
 
     #[inline]
     /// Removes the saved login of `provider`.
-    pub fn logout(&mut self, provider: Provider) {
+    pub fn logout(&mut self, provider: &Provider) {
         let notices = self.logins.logout(provider);
         self.show(Speaker::Login, notices);
         self.sync_view();

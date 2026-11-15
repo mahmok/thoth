@@ -312,7 +312,7 @@ fn logins(session: &Client) -> Vec<Pick> {
         .login_providers()
         .into_iter()
         .map(|provider| {
-            let note = match session.login_state(provider.clone()) {
+            let note = match session.login_state(&provider) {
                 LoginState::Saved => "logged in".to_owned(),
                 LoginState::FromEnvironment => {
                     format!("using {}", provider.env_var().unwrap_or("the environment"))
@@ -321,7 +321,7 @@ fn logins(session: &Client) -> Vec<Pick> {
             };
             let choice = Choice::new(provider.id(), provider.display_name(), note);
             let apply: Apply = Box::new(move |s| {
-                s.login(provider);
+                s.login(&provider);
                 Ok(())
             });
             (choice, apply)
@@ -336,7 +336,7 @@ fn logouts(session: &Client) -> Vec<Pick> {
         .map(|provider| {
             let choice = Choice::new(provider.id(), provider.display_name(), "remove the saved login");
             let apply: Apply = Box::new(move |s| {
-                s.logout(provider);
+                s.logout(&provider);
                 Ok(())
             });
             (choice, apply)

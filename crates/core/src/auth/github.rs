@@ -38,7 +38,6 @@ impl Endpoints {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 /// A device code to enter on GitHub.
-#[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]
 pub struct DeviceCode {
     pub device_code: String,
     pub expires_in: u64,

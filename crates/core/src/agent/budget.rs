@@ -1,9 +1,3 @@
-//! The context budget: one estimate of what the next request would carry, and one pure decision
-//! about what to do when it would carry too much.
-//!
-//! The decision is pure so that the shrink and compact rules can be tested without a model or a
-//! client. The Turn asks it; only the Turn knows how to elide or compact.
-
 use crate::agent::context::{Budget, Compaction, Elision};
 use crate::utils::numbers;
 

@@ -43,11 +43,9 @@ impl Tool for InvokeSkill {
 }
 
 fn get_skill_block(skill_set: &SkillSet, name: &str) -> Result<String, String> {
-    if let Some(skill) = skill_set.get_skill_by_name(name) {
-        Ok(skill.block())
-    } else {
-        Err(format!("Skill {} not found", name))
-    }
+    skill_set
+        .get_skill_by_name(name)
+        .map_or_else(|| Err(format!("Skill {name} not found")), |skill| Ok(skill.block()))
 }
 
 #[cfg(test)]

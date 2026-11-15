@@ -183,7 +183,6 @@ impl SubAgents {
 }
 
 /// A permit to run a Turn, or `None` if the calling Turn is cancelled while waiting for one.
-#[expect(clippy::integer_division_remainder_used, reason = "tokio::select! expands to a remainder")]
 async fn wait_for_permit<'semaphore>(
     running: &'semaphore Semaphore,
     cancel: &CancellationToken,

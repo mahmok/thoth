@@ -57,7 +57,6 @@ impl Conversation {
 
 impl Agent {
     /// Requests a summary, eliding everything first if the context overflows.
-    #[expect(clippy::too_many_arguments, reason = "the arguments are separate pieces of one call")]
     async fn ask_for_summary(
         &self,
         client: &AnyClient,

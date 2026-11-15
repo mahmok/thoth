@@ -44,6 +44,7 @@ pub struct FileReferences {
 
 impl FileReferences {
     /// The files `text` refers to, as blocks to append to a prompt.
+    #[must_use]
     pub fn attach(&self, text: &str) -> String {
         attachments(text, |path| {
             let content = self.workspace.read(path, ReadPolicy::inside(MAX_FILE_BYTES)).ok()?;
@@ -59,6 +60,7 @@ impl FileReferences {
     }
 
     /// The Workspace's files, to complete a reference being typed.
+    #[must_use]
     pub fn suggestions(&self) -> Suggestions {
         self.index.refresh();
         index::suggestions(&self.index)

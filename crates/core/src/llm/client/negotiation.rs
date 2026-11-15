@@ -38,7 +38,6 @@ impl Negotiation {
     }
 
     #[inline]
-    #[expect(clippy::result_large_err, reason = "the negotiation methods share the client's error type")]
     /// Sends like [`send`](Self::send), and also treats a Gemini `error.status` as a setting refusal.
     ///
     /// # Errors
@@ -58,7 +57,7 @@ impl Negotiation {
         self.negotiate(level, settings, send, |error| is_setting_refusal(error) || is_status_refusal(error)).await
     }
 
-    #[expect(clippy::result_large_err, reason = "the negotiation methods share the client's error type")]
+    #[inline]
     async fn negotiate<Callback, S, T, Fut>(
         &self,
         level: Thinking,

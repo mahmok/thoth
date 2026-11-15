@@ -20,7 +20,7 @@ regex = "1"
 crossterm = "0.29"
 ratatui = "0.30.2"
 ratatui-textarea = "0.9.3"
-reqwest = { version = "0.13.5", features = ["json"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -46,4 +46,3 @@ style = "warn"
 [profile.dist]
 inherits = "release"
 lto = "thin"
-

@@ -228,11 +228,12 @@ impl Agent {
 
     fn client(&self) -> Result<Arc<AnyClient>, Failure> {
         let current = self.current.read_unpoisoned();
-        let current = current.as_ref().ok_or(Failure::NoModel)?;
-        match current.client {
+        let client = match current.as_ref().ok_or(Failure::NoModel)?.client {
             Ok(ref client) => Ok(Arc::clone(client)),
             Err(ref message) => Err(Failure::Client(ClientError::BadRequest(message.clone()))),
-        }
+        };
+        drop(current);
+        client
     }
 
     #[inline]
@@ -323,8 +324,10 @@ impl Agent {
     }
 
     /// A token for the work about to start, child of `parent`, and the guard that keeps it
-    /// reachable by `interrupt` until the work is done. Work that waits for the Conversation is
-    /// registered too, so an interrupt stops the running Turn and the ones queued behind it.
+    /// reachable by `interrupt` until the work is done.
+    ///
+    /// Work that waits for the Conversation is registered too, so an interrupt stops the running
+    /// Turn and the ones queued behind it.
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     fn new_cancellation(&self, parent: &CancellationToken) -> (CancellationToken, ActiveGuard<'_>) {
         let token = parent.child_token();

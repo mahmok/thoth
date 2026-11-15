@@ -202,7 +202,6 @@ impl ModelFetcher {
     }
 
     /// Fetches the gateway's models, each in the dialect its `api` key names.
-    #[expect(clippy::result_large_err, reason = "the fetch methods share the client's error type")]
     async fn opencode_go(&self, provider: &Provider) -> Result<Vec<Model>, ClientError> {
         let response = self.root_auth(provider).get("/v1/models", &[]).await?;
         let list: List<OpenCodeGoModel> = response.json().await?;

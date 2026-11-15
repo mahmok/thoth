@@ -40,10 +40,10 @@ use store::{Credentials as CredentialStore, Source};
 /// Why a request could not be authorised.
 pub enum Failure {
     Flow(String),
-    NotLoggedIn(Provider),
-    Rejected(Provider),
+    NotLoggedIn(Box<Provider>),
+    Rejected(Box<Provider>),
     Store(String),
-    Unsupported(Provider),
+    Unsupported(Box<Provider>),
 }
 
 impl fmt::Display for Failure {
@@ -161,12 +161,12 @@ impl Auth {
                 return Ok(access);
             },
             Some(Credential::Oauth { refresh, .. }) => refresh,
-            _ => return Err(Failure::NotLoggedIn(self.provider.clone())),
+            _ => return Err(Failure::NotLoggedIn(Box::new(self.provider.clone()))),
         };
         let credential =
             self.github.exchange_token(&refresh).await.map_err(|e| Failure::Flow(format!("{e}; run /login")))?;
         let Credential::Oauth { ref access, .. } = credential else {
-            return Err(Failure::Unsupported(self.provider.clone()));
+            return Err(Failure::Unsupported(Box::new(self.provider.clone())));
         };
         let token = access.clone();
         self.store.write(&self.provider, credential).map_err(|e| Failure::Store(e.to_string()))?;
@@ -176,7 +176,7 @@ impl Auth {
     async fn resolve(&self, messages: &[Message]) -> Result<RequestAuth, Failure> {
         let provider = &self.provider;
         let method = provider.login_method();
-        match self.store.source(provider).ok_or_else(|| Failure::NotLoggedIn(provider.clone()))? {
+        match self.store.source(provider).ok_or_else(|| Failure::NotLoggedIn(Box::new(provider.clone())))? {
             Source::Local => Ok(RequestAuth::token("ollama")),
             Source::Environment(key) => Ok(RequestAuth::token(key)),
             Source::Stored(Credential::ApiKey { key }) if method == LoginMethod::ApiKey => Ok(RequestAuth::token(key)),
@@ -188,11 +188,10 @@ impl Auth {
                     headers: copilot::headers(messages),
                 })
             },
-            Source::Stored(_) => Err(Failure::Unsupported(provider.clone())),
+            Source::Stored(_) => Err(Failure::Unsupported(Box::new(provider.clone()))),
         }
     }
 
-    #[expect(clippy::too_many_arguments, reason = "the arguments are separate pieces of one call")]
     async fn send<B>(
         &self,
         method: Method,
@@ -231,7 +230,7 @@ impl Auth {
 
         let response = request.send().await?;
         if response.status() == StatusCode::UNAUTHORIZED {
-            return Err(Failure::Rejected(self.provider.clone()).into());
+            return Err(Failure::Rejected(Box::new(self.provider.clone())).into());
         }
         if matches!(response.status(), StatusCode::BAD_REQUEST | StatusCode::UNPROCESSABLE_ENTITY) {
             let detail = response.text().await.unwrap_or_default();
@@ -333,7 +332,7 @@ mod tests {
     async fn without_a_credential_the_error_points_at_login() {
         let err =
             auth(Provider::builtin("anthropic").unwrap(), Protocol::Anthropic, store()).resolve(&[]).await.unwrap_err();
-        assert_eq!(err, Failure::NotLoggedIn(Provider::builtin("anthropic").unwrap()));
+        assert_eq!(err, Failure::NotLoggedIn(Box::new(Provider::builtin("anthropic").unwrap())));
         assert_eq!(err.to_string(), "not logged in to Anthropic; run /login");
     }
 
@@ -347,11 +346,11 @@ mod tests {
                 .resolve(&[])
                 .await
                 .unwrap_err(),
-            Failure::Unsupported(Provider::builtin("github-copilot").unwrap())
+            Failure::Unsupported(Box::new(Provider::builtin("github-copilot").unwrap()))
         );
         assert_eq!(
             auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store).resolve(&[]).await.unwrap_err(),
-            Failure::Unsupported(Provider::builtin("openai").unwrap())
+            Failure::Unsupported(Box::new(Provider::builtin("openai").unwrap()))
         );
     }
 

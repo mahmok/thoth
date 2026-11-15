@@ -1,6 +1,3 @@
-//! The one-row header: a tiny ibis glyph and the name on the left, what the agent is doing on
-//! the right. The branding is small so the task stays the centre of the screen.
-
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Modifier;
@@ -10,10 +7,9 @@ use ratatui::widgets::Paragraph;
 use crate::theme::{self, Status, Theme, palette};
 use crate::units::to_u16;
 
-/// The glyph in profile: a teal crest and curved beak around a gold eye.
 fn mark(theme: Theme) -> Vec<Span<'static>> {
     let teal = theme.accent();
-    vec![Span::styled("\u{256d}", teal), Span::styled("\u{25c6}", theme.gold()), Span::styled("\u{256e}", teal)]
+    vec![Span::styled("──", teal), Span::styled("●", theme.gold()), Span::styled("──", teal)]
 }
 
 fn brand(theme: Theme) -> Line<'static> {

@@ -42,12 +42,11 @@ impl TerminalApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
-        match keymap::effect_for(key, self.context()) {
-            Some(effect) => self.perform(effect),
-            None => {
-                self.prompt.handle_key(key);
-                self.prompt_changed();
-            },
+        if let Some(effect) = keymap::effect_for(key, self.context()) {
+            self.perform(effect);
+        } else {
+            self.prompt.handle_key(key);
+            self.prompt_changed();
         }
     }
 
@@ -63,7 +62,7 @@ impl TerminalApp {
     }
 
     /// Where the user is: which context answers a key, and which hints are shown.
-    pub(super) fn context(&self) -> Context {
+    pub(super) const fn context(&self) -> Context {
         let login = self.harness.login_view();
         if self.pickers.is_open() {
             Context::Picker

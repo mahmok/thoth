@@ -1,7 +1,5 @@
 //! Fixtures shared by the Agent's tests, and the tests for the Agent's own state.
 
-#![expect(clippy::result_large_err, reason = "the fake client's script holds Results, as the product's client returns")]
-
 use alloc::sync::Arc;
 use core::future;
 

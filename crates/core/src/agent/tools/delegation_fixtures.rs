@@ -21,6 +21,11 @@ use crate::transcript::Observed;
 pub type Script = Vec<Result<StreamedCompletion, ClientError>>;
 
 /// The Root's own Persona, a Persona with every tool, and one that only reads.
+///
+/// # Panics
+///
+/// Panics if the fixture registry rejects a persona.
+#[must_use]
 pub fn personas() -> Arc<PersonaRepository> {
     let mut registry = PersonaRepository::new();
     for persona in [
@@ -35,6 +40,11 @@ pub fn personas() -> Arc<PersonaRepository> {
 
 /// A Root agent. Its model and every Sub-agent's model answer from `script`, in the order
 /// the calls are made.
+///
+/// # Panics
+///
+/// Panics if the `root` fixture persona is missing.
+#[must_use]
 pub fn root(script: Script, limits: Delegation) -> (Agent, FakeClient) {
     let tree = TempTree::new("delegate");
     let fake = FakeClient::new(script);
@@ -54,14 +64,18 @@ pub fn root(script: Script, limits: Delegation) -> (Agent, FakeClient) {
     (builder.build_root(SessionId::mint(), &own, personas), fake)
 }
 
-#[expect(clippy::unnecessary_wraps, reason = "the fake client's script holds Results, and the caller compares Options")]
+/// # Errors
+///
+/// Never fails; the `Result` is the shape the fake client's script stores.
 pub fn reply(text: &str) -> Result<StreamedCompletion, ClientError> {
     Ok(StreamedCompletion { text: text.into(), ..Default::default() })
 }
 
-/// A reply that calls `delegate` once for each `(call id, arguments)`.
 /// A reply that calls the Tool `name` once for each `(call id, arguments)`.
-#[expect(clippy::unnecessary_wraps, reason = "the fake client's script holds Results, and the caller compares Options")]
+///
+/// # Errors
+///
+/// Never fails; the `Result` is the shape the fake client's script stores.
 pub fn tool_calls(name: &str, calls: &[(&str, &str)]) -> Result<StreamedCompletion, ClientError> {
     Ok(StreamedCompletion {
         tool_calls: calls
@@ -77,11 +91,19 @@ pub fn tool_calls(name: &str, calls: &[(&str, &str)]) -> Result<StreamedCompleti
 }
 
 /// A reply that calls `delegate` once for each `(call id, arguments)`.
+///
+/// # Errors
+///
+/// Never fails; the `Result` is the shape the fake client's script stores.
 pub fn delegate_calls(calls: &[(&str, &str)]) -> Result<StreamedCompletion, ClientError> {
     tool_calls("delegate", calls)
 }
 
 /// Runs one Turn, returning the tool results by call id and the tool events in order.
+///
+/// # Panics
+///
+/// Panics if the Turn fails.
 pub async fn turn(agent: &Agent) -> (Vec<(String, ToolResult)>, Vec<String>) {
     let mut results = Vec::new();
     let mut order = Vec::new();
@@ -103,6 +125,12 @@ pub async fn turn(agent: &Agent) -> (Vec<(String, ToolResult)>, Vec<String>) {
     (results, order)
 }
 
+/// The result of the call with id `id`.
+///
+/// # Panics
+///
+/// Panics if no result has that call id.
+#[must_use]
 pub fn result_of<'results>(results: &'results [(String, ToolResult)], id: &str) -> &'results ToolResult {
     &results.iter().find(|entry| entry.0 == id).unwrap().1
 }

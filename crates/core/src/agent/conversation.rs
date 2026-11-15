@@ -14,7 +14,6 @@ pub struct Conversation {
     messages: Vec<Message>,
 }
 
-#[expect(clippy::multiple_inherent_impl, reason = "its impls are split by topic across files")]
 impl Conversation {
     #[inline]
     /// Starts a Turn with `prompt` as the user message.
@@ -73,7 +72,6 @@ impl Conversation {
 
 #[derive(Debug)]
 /// One user prompt and everything the Agent does for it.
-#[expect(clippy::struct_excessive_bools, reason = "the flags are independent facts about one turn")]
 pub struct Turn<'conversation> {
     committed: bool,
     conversation: &'conversation mut Conversation,

@@ -314,7 +314,7 @@ fn a_prompt_that_looks_like_a_command_is_sent_as_typed() {
 #[test]
 fn the_device_code_is_shown_and_kept_in_the_view_while_the_login_waits() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("github-copilot").unwrap());
+    h.harness.login(&Provider::builtin("github-copilot").unwrap());
     h.worker.event(device_code());
     h.poll();
     let said = h.said_by(Speaker::Login).join("\n");
@@ -326,7 +326,7 @@ fn the_device_code_is_shown_and_kept_in_the_view_while_the_login_waits() {
 #[test]
 fn finishing_a_login_says_so_and_clears_the_login_state() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("anthropic").unwrap());
+    h.harness.login(&Provider::builtin("anthropic").unwrap());
     h.worker.event(device_code());
     h.worker.event(LoginEvent::Done(Provider::builtin("anthropic").unwrap()));
     h.poll();
@@ -337,7 +337,7 @@ fn finishing_a_login_says_so_and_clears_the_login_state() {
 #[test]
 fn a_failed_login_shows_the_error() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("github-copilot").unwrap());
+    h.harness.login(&Provider::builtin("github-copilot").unwrap());
     h.worker.event(LoginEvent::Failed("device flow failed: access_denied".into()));
     h.poll();
     assert_eq!(h.said_by(Speaker::Error), ["device flow failed: access_denied"]);
@@ -346,7 +346,7 @@ fn a_failed_login_shows_the_error() {
 #[test]
 fn an_api_key_goes_to_the_login_and_never_to_the_agent() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("openai").unwrap());
+    h.harness.login(&Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste your OpenAI API key (input is hidden)".into() });
     h.poll();
     assert!(h.harness.login_view().awaiting_secret);
@@ -360,7 +360,7 @@ fn an_api_key_goes_to_the_login_and_never_to_the_agent() {
 #[test]
 fn cancel_ends_a_pending_login() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("openai").unwrap());
+    h.harness.login(&Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
     h.poll();
     h.cancel();
@@ -376,7 +376,7 @@ fn cancel_ends_a_pending_login() {
 #[test]
 fn a_login_event_after_a_cancel_does_not_bring_the_key_prompt_back() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("openai").unwrap());
+    h.harness.login(&Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
     h.cancel();
     h.poll();
@@ -418,7 +418,7 @@ fn a_second_refresh_waits_for_the_first_and_refresh_works_while_a_turn_runs() {
 #[test]
 fn logging_in_refreshes_just_that_provider() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("openai").unwrap());
+    h.harness.login(&Provider::builtin("openai").unwrap());
     h.worker.event(LoginEvent::Done(Provider::builtin("openai").unwrap()));
     h.poll();
     assert!(h.said_by(Speaker::Login).contains(&"Logged in to OpenAI.".to_owned()));
@@ -433,7 +433,7 @@ fn logging_in_refreshes_just_that_provider() {
 #[test]
 fn a_failed_login_does_not_refresh_anything() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("github-copilot").unwrap());
+    h.harness.login(&Provider::builtin("github-copilot").unwrap());
     h.worker.event(LoginEvent::Failed("device flow failed".into()));
     h.poll();
     assert_empty(h.refresh_worker.started());
@@ -443,7 +443,7 @@ fn a_failed_login_does_not_refresh_anything() {
 fn login_works_while_a_turn_runs() {
     let mut h = Harness::new();
     h.send("hello");
-    h.harness.login(Provider::builtin("openai").unwrap());
+    h.harness.login(&Provider::builtin("openai").unwrap());
     assert_eq!(h.worker.started(), [Provider::builtin("openai").unwrap()]);
 }
 
@@ -461,7 +461,7 @@ fn the_view_follows_the_events_it_emitted() {
     h.send("hi");
     h.text("hello");
     h.done();
-    h.harness.login(Provider::builtin("github-copilot").unwrap());
+    h.harness.login(&Provider::builtin("github-copilot").unwrap());
     h.worker.event(device_code());
     h.poll();
     for event in &h.events {
@@ -559,9 +559,9 @@ fn an_empty_store_has_no_models() {
 #[test]
 fn logging_in_starts_the_provider_and_shows_it() {
     let mut h = Harness::with_logged_in(&[Provider::builtin("openai").unwrap()]);
-    assert_eq!(h.harness.login_state(Provider::builtin("openai").unwrap()), LoginState::Saved);
-    assert_eq!(h.harness.login_state(Provider::builtin("github-copilot").unwrap()), LoginState::NotLoggedIn);
-    h.harness.login(Provider::builtin("github-copilot").unwrap());
+    assert_eq!(h.harness.login_state(&Provider::builtin("openai").unwrap()), LoginState::Saved);
+    assert_eq!(h.harness.login_state(&Provider::builtin("github-copilot").unwrap()), LoginState::NotLoggedIn);
+    h.harness.login(&Provider::builtin("github-copilot").unwrap());
     h.poll();
     assert_eq!(h.worker.started(), [Provider::builtin("github-copilot").unwrap()]);
     assert_eq!(h.said_by(Speaker::Login), ["Logging in to GitHub Copilot..."]);
@@ -586,7 +586,7 @@ fn the_login_list_adds_custom_providers_that_need_a_key() {
 fn logout_removes_the_saved_login() {
     let mut h = Harness::with_logged_in(&[Provider::builtin("github-copilot").unwrap()]);
     assert_eq!(h.harness.saved_logins(), [Provider::builtin("github-copilot").unwrap()]);
-    h.harness.logout(Provider::builtin("github-copilot").unwrap());
+    h.harness.logout(&Provider::builtin("github-copilot").unwrap());
     h.poll();
     assert_eq!(h.store.read(&Provider::builtin("github-copilot").unwrap()), None);
     assert_empty(h.harness.saved_logins());
@@ -652,7 +652,7 @@ fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
 fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
     let mut h = Harness::new();
     h.harness.start_session_with(SessionId::mint(), Box::new(ScriptedAgent::new()));
-    h.harness.login(Provider::builtin("github-copilot").unwrap());
+    h.harness.login(&Provider::builtin("github-copilot").unwrap());
     h.worker.event(device_code());
     h.poll();
     assert_eq!(h.harness.login_view().device_code.as_deref(), Some("ABCD-1234"));
@@ -662,7 +662,7 @@ fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
 #[test]
 fn notices_belong_to_no_session() {
     let mut h = Harness::new();
-    h.harness.login(Provider::builtin("github-copilot").unwrap());
+    h.harness.login(&Provider::builtin("github-copilot").unwrap());
     let events = h.harness.poll();
     assert!(events.iter().any(|e| matches!(
         e,

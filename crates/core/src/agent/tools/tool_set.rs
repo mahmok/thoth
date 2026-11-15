@@ -33,7 +33,6 @@ pub struct ToolSet {
 }
 
 impl ToolSet {
-    #[must_use]
     #[inline]
     /// The definitions the model is sent, in registration order.
     pub fn definitions(&self) -> impl ExactSizeIterator<Item = &ToolSpec> + '_ {
@@ -109,7 +108,7 @@ impl ToolSet {
     #[must_use]
     #[inline]
     pub fn is_read_only(&self, name: &str) -> bool {
-        self.find(name).is_some_and(|tool| tool.is_read_only())
+        self.find(name).is_some_and(ErasedTool::is_read_only)
     }
 
     /// Whether `value` parses as the arguments of the Tool called `name`, so a test can prove the
@@ -224,8 +223,8 @@ mod tests {
                 json!({ "type": "object", "properties": { "text": { "type": "string" } } })
             }
 
-            async fn run(&self, args: EchoArgs, _cx: &ToolContext) -> ToolResult {
-                ToolResult::ok(args.text)
+            fn run(&self, args: EchoArgs, _cx: &ToolContext) -> impl Future<Output = ToolResult> {
+                future::ready(ToolResult::ok(args.text))
             }
 
             fn summary(&self, args: &EchoArgs) -> String {

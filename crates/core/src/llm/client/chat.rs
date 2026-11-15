@@ -182,7 +182,6 @@ pub struct FunctionCall {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 /// Token counts of a request.
-#[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]
 pub struct Usage {
     /// How much of the prompt the provider served from its cache. Part of `prompt_tokens`.
     #[serde(default, rename = "prompt_tokens_details", deserialize_with = "cached_tokens")]

@@ -1,7 +1,6 @@
 //! Tests for the Harness itself: the route a client takes to a Turn.
 
 #![expect(clippy::future_not_send, reason = "the Harness holds scripted workers, and the test drives it on one thread")]
-#![expect(clippy::result_large_err, reason = "the fake client's script holds Results, as the product's client returns")]
 
 use alloc::sync::Arc;
 use core::time::Duration;

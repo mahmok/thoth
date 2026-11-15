@@ -24,7 +24,6 @@ pub fn scaled(count: usize, factor: f32) -> usize {
     reason = "token counts are estimates: precision lost above 2^24 does not matter"
 )]
 #[inline]
-#[cfg_attr(not(test), expect(clippy::single_call_fn, reason = "kept beside `scaled`: both hold the float conversions"))]
 pub fn ratio(part: u32, whole: usize) -> f32 {
     part as f32 / whole as f32
 }

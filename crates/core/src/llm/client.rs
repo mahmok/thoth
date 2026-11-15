@@ -60,6 +60,7 @@ pub enum ToolChoice {
 }
 
 impl ToolChoice {
+    #[must_use]
     pub fn forbids(self, tools: &[ToolSpec]) -> bool {
         self == Self::None && !tools.is_empty()
     }
@@ -83,6 +84,9 @@ pub struct StreamedCompletion {
 }
 
 impl StreamedCompletion {
+    /// # Errors
+    ///
+    /// Fails if the reply was cut off before producing any text or Tool calls.
     pub fn fail_if_cut_off_empty(self) -> Result<Self, ClientError> {
         match self.cut_off {
             Some(ref reason) if self.text.is_empty() && self.tool_calls.is_empty() => Err(error::cut_off(reason)),

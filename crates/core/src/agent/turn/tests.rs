@@ -1,7 +1,5 @@
 //! Tests for one Turn: its steps, its Tool calls and the events it reports.
 
-#![expect(clippy::result_large_err, reason = "the fake client's script holds Results, as the product's client returns")]
-
 use alloc::sync::Arc;
 use core::future;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -400,7 +398,7 @@ async fn an_interrupt_stops_the_running_turn_and_the_ones_queued_behind_it() {
         })
     };
     let (first, second, ()) =
-        time::timeout(Duration::from_secs(10), both).await.expect("the interrupt reached the running Turn");
+        time::timeout(Duration::from_secs(10), Box::pin(both)).await.expect("the interrupt reached the running Turn");
     assert!(matches!(first, Err(Failure::Interrupted)));
     assert!(matches!(second, Err(Failure::Interrupted)));
     assert_eq!(fake.requests().len(), 1, "the queued Turn never asked the model");

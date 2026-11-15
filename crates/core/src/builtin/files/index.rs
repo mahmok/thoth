@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(test, feature = "testing"))]
 use core::time::Duration;
 use std::path::Path;
 use std::sync::Mutex;

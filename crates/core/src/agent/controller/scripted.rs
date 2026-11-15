@@ -46,6 +46,10 @@ impl Controller {
     #[must_use]
     #[inline]
     /// Creates a scripted Agent with a default model.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the built-in `ollama` provider is missing.
     pub fn new() -> Rc<Self> {
         Rc::new(Self {
             settings: RefCell::new(Settings {

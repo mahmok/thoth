@@ -9,7 +9,6 @@ use crate::llm::client::chat::{Message, Role};
 /// The start of the note left where output was dropped.
 const NOTE: &str = r#"{"elided":"#;
 
-#[expect(clippy::multiple_inherent_impl, reason = "its impls are split by topic across files")]
 impl Conversation {
     fn drop_obsolete_reasoning(&mut self) {
         let latest_turn = self.messages.iter().rposition(|m| m.role == Role::User);
