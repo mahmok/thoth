@@ -19,6 +19,7 @@ Thoth is a generic terminal AI agent framework: a person talks to an AI model th
   - [Exhaustive Architecture Overview](#exhaustive-architecture-overview)
 - [Development Installation & Getting Started](#development-installation--getting-started)
   - [Prerequisites](#prerequisites)
+  - [Installing via Cargo](#installing-via-cargo)
   - [Building from Source](#building-from-source)
   - [Running Thoth](#running-thoth)
   - [Running Tests](#running-tests)
@@ -115,6 +116,14 @@ Thoth requires **Rust 1.89+** (Edition 2024) and Cargo. You can install Rust via
 
 ```bash
 rustup update stable
+```
+
+### Installing via Cargo
+
+You can install Thoth directly from the GitHub repository using Cargo:
+
+```bash
+cargo install --git https://github.com/mahmok/thoth.git thoth
 ```
 
 ### Building from Source
