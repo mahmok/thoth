@@ -3,6 +3,8 @@ name = "thoth-core"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 
 [features]
 testing = []

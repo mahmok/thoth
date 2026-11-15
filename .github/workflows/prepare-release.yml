@@ -1,0 +1,33 @@
+name: Prepare release
+
+# Opens or refreshes the release PR that release-plz generates: version bumps, the
+# CHANGELOG entry, and a summary of what will be released. Merging that PR is what
+# makes the release real; see docs/releasing.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    name: release PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
