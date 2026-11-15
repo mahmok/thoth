@@ -273,8 +273,11 @@ impl Auth {
 
 /// The program's one HTTP client. Clones share its connection pool and TLS setup, so
 /// switching models or refreshing the model lists reuses connections instead of rebuilding them.
+/// Every request names the client and its version, which the gateway asks for.
 fn http_client() -> reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        reqwest::Client::builder().user_agent(concat!("thoth/", env!("CARGO_PKG_VERSION"))).build().unwrap_or_default()
+    });
     CLIENT.clone()
 }
 
@@ -526,6 +529,14 @@ mod tests {
         assert_eq!(request.header("authorization"), Some("Bearer sk-1"));
         assert_eq!(request.header("x-extra"), Some("1"));
         assert_eq!(request.body, "");
+    }
+
+    #[tokio::test]
+    async fn every_request_names_the_client_and_its_version() {
+        let server = ok_server().await;
+        post(&auth(Provider::builtin("ollama").unwrap(), Protocol::OpenAi, store()), &server, &[]).await.unwrap();
+
+        assert_eq!(server.requests()[0].header("user-agent"), Some(concat!("thoth/", env!("CARGO_PKG_VERSION"))));
     }
 
     #[tokio::test]
