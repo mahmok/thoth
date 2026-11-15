@@ -3,6 +3,8 @@ name = "thoth-terminal"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 
 [dependencies]
 thoth-core.workspace = true

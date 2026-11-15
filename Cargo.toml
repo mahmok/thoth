@@ -6,6 +6,8 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 publish = false
+rust-version = "1.89"
+repository = "https://github.com/mahmok/thoth"
 
 [workspace.dependencies]
 thoth-core = { path = "crates/core" }
@@ -39,4 +41,9 @@ correctness = "warn"
 complexity = "warn"
 perf = "warn"
 style = "warn"
+
+# The profile cargo-dist builds release binaries with.
+[profile.dist]
+inherits = "release"
+lto = "thin"
 

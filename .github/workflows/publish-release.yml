@@ -1,0 +1,208 @@
+name: Publish release
+
+# Turns the version merged by the release PR into a tagged GitHub Release with binaries
+# attached. Dispatch it after merging the release PR; see docs/releasing.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (v0.1.0). Defaults to the workspace version."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_DIST_VERSION: "0.34.0"
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      # Compile errors block the release; lints do not, because the workspace lints
+      # pedantic and nursery at `warn` and the existing tree has findings.
+      - run: cargo clippy --workspace --all-targets --locked
+      - run: cargo test --workspace --locked
+
+  release:
+    name: tag and release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+      # release-plz creates the tag and the GitHub Release. With `release_always = false`
+      # it only does so when the tip of main is the merge commit of a release PR.
+      - uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          # The only uncommented `version` at the start of a line in the root manifest is
+          # `[workspace.package].version`.
+          version=$(grep -m1 '^version = "' Cargo.toml | cut -d'"' -f2)
+          tag="${INPUT_TAG:-v$version}"
+          git fetch --tags --force --quiet
+          if ! git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "::error::No tag $tag exists. release-plz released nothing: merge the release PR first, and do not merge anything else after it."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build ${{ matrix.target }}
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            dist_asset: cargo-dist-x86_64-unknown-linux-gnu.tar.xz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            dist_asset: cargo-dist-aarch64-unknown-linux-gnu.tar.xz
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            dist_asset: cargo-dist-x86_64-apple-darwin.tar.xz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            dist_asset: cargo-dist-aarch64-apple-darwin.tar.xz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            dist_asset: cargo-dist-x86_64-pc-windows-msvc.zip
+          # cargo-dist publishes no prebuilt ARM64 Windows binary yet, so this job
+          # builds dist itself.
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
+            dist_asset: ""
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install cargo-dist (prebuilt)
+        if: matrix.dist_asset != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dist"
+          gh release download "v$CARGO_DIST_VERSION" --repo axodotdev/cargo-dist \
+            --pattern "${{ matrix.dist_asset }}" --dir "$RUNNER_TEMP/dist"
+          tar -xf "$RUNNER_TEMP/dist/${{ matrix.dist_asset }}" -C "$RUNNER_TEMP/dist"
+          echo "$RUNNER_TEMP/dist" >> "$GITHUB_PATH"
+      - name: Install cargo-dist (from source)
+        if: matrix.dist_asset == ''
+        run: cargo install cargo-dist --version ${{ env.CARGO_DIST_VERSION }} --locked
+      - name: Build artifacts
+        run: dist build --artifacts=local --target ${{ matrix.target }} --tag "$TAG"
+      - name: Smoke test the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/${{ matrix.target }}/dist/thoth"
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$bin.exe"; fi
+          expected="thoth ${TAG#v}"
+          actual=$("$bin" --version)
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::$bin reported '$actual', expected '$expected'"
+            exit 1
+          fi
+      - name: Upload artifacts
+        shell: bash
+        run: find target/distrib -maxdepth 1 -type f -print0 | xargs -0 gh release upload "$TAG" --clobber
+
+  checksums:
+    name: aggregate checksums
+    needs: [release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.release.outputs.tag }}
+    steps:
+      - name: Publish one sha256.sum over every archive
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'thoth-*.tar.xz' --pattern 'thoth-*.zip' --dir dist
+          ( cd dist && sha256sum thoth-* > sha256.sum )
+          cat dist/sha256.sum
+          gh release upload "$TAG" dist/sha256.sum --repo "$GITHUB_REPOSITORY" --clobber
+
+  verify-assets:
+    name: verify assets
+    needs: [release, build, checksums]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Every target uploaded an archive and a checksum
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | sort > assets.txt
+          cat assets.txt
+          status=0
+          grep -qx sha256.sum assets.txt || {
+            echo "::error::missing sha256.sum"
+            status=1
+          }
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+                        x86_64-apple-darwin aarch64-apple-darwin \
+                        x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
+            if grep -qx "thoth-$target.tar.xz" assets.txt; then
+              ext=tar.xz
+            elif grep -qx "thoth-$target.zip" assets.txt; then
+              ext=zip
+            else
+              echo "::error::no archive for $target"
+              status=1
+              continue
+            fi
+            grep -qx "thoth-$target.$ext.sha256" assets.txt || {
+              echo "::error::missing checksum for thoth-$target.$ext"
+              status=1
+            }
+          done
+          exit $status

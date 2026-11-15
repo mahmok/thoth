@@ -1,0 +1,36 @@
+# cargo-dist builds the release archives; release-plz owns the tag and the GitHub Release.
+# See docs/releasing.md and .github/workflows/publish-release.yml.
+
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.34.0"
+
+# Release orchestration lives in our own workflows, so dist must neither generate CI
+# scripts nor refuse to run because they are missing.
+allow-dirty = ["ci"]
+ci = "github"
+hosting = ["github"]
+
+# release-plz creates the GitHub Release with the changelog; dist only builds the
+# artifacts that get attached to it.
+create-release = false
+
+# Archives and checksums only.
+installers = []
+# GitHub already serves source archives for a release.
+source-tarball = false
+
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+  "aarch64-pc-windows-msvc",
+]
+
+checksum = "sha256"
+unix-archive = ".tar.xz"
+windows-archive = ".zip"
