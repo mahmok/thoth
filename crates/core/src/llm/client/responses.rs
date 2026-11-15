@@ -25,8 +25,6 @@ pub struct Config {
 
 #[derive(Debug)]
 pub struct Client {
-    /// See [`new_cache_key`](super::new_cache_key).
-    cache_key: String,
     config: Config,
     negotiation: Negotiation,
 }
@@ -48,7 +46,7 @@ impl Client {
                 choice.forbids(tools).then_some("none"),
             ),
             store: false,
-            prompt_cache_key: &self.cache_key,
+            prompt_cache_key: self.config.auth.session_id().map(|session| session.to_string()),
             input: &prompt.input,
             // Stateless mode: the server keeps nothing, so reasoning comes back to us
             // (encrypted) and is sent again with the next request.
@@ -67,7 +65,7 @@ impl Client {
     #[must_use]
     #[inline]
     pub fn new(config: Config) -> Self {
-        Self { config, negotiation: Negotiation::default(), cache_key: super::new_cache_key() }
+        Self { config, negotiation: Negotiation::default() }
     }
 
     /// POSTs the request, trying reasoning settings until the model accepts one.
@@ -118,7 +116,8 @@ struct Body<'request> {
     input: &'request [Input<'request>],
     #[serde(skip_serializing_if = "Option::is_none")]
     instructions: Option<&'request str>,
-    prompt_cache_key: &'request str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<Value>,
     store: bool,
@@ -522,22 +521,25 @@ mod tests {
     }
 
     #[test]
-    fn every_request_of_a_client_carries_the_same_cache_key() {
+    fn every_request_of_a_session_carries_its_id_as_the_cache_key() {
         use alloc::sync::Arc;
 
         use crate::auth::store::Credentials as CredentialStore;
         use crate::llm::provider::{Protocol, Provider};
+        use crate::session::SessionId;
 
+        let session = SessionId::mint();
         let auth = Auth::new(
             Provider::builtin("ollama").unwrap(),
             Protocol::Responses,
             Arc::new(CredentialStore::in_memory()),
-        );
+        )
+        .with_session(session);
         let client = Client::new(Config { model: "m".into(), auth });
         let request = CreateCompletionRequest::default();
         let first = client.body_json(&request, Setting::Nothing);
         let second = client.body_json(&request, Setting::Nothing);
-        assert!(first["prompt_cache_key"].as_str().is_some_and(|key| key.starts_with(crate::APP_NAME)));
+        assert_eq!(first["prompt_cache_key"], session.to_string());
         assert_eq!(first["prompt_cache_key"], second["prompt_cache_key"]);
     }
 

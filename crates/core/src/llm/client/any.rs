@@ -3,6 +3,7 @@ use alloc::sync::Arc;
 use crate::auth::Auth;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::provider::{Model, ModelSpec, Protocol};
+use crate::session::SessionId;
 
 use super::anthropic::{Client as AnthropicClient, Config as AnthropicConfig};
 use super::google::{Client as GoogleClient, Config as GoogleConfig};
@@ -31,8 +32,8 @@ impl Client {
     ///
     /// Fails for a protocol this build cannot speak.
     #[inline]
-    pub fn for_model(spec: &ModelSpec, store: &Arc<CredentialStore>) -> Result<Self, ClientError> {
-        let auth = Auth::for_model(spec, Arc::clone(store));
+    pub fn for_model(spec: &ModelSpec, store: &Arc<CredentialStore>, session: SessionId) -> Result<Self, ClientError> {
+        let auth = Auth::for_model(spec, Arc::clone(store), session);
         let model = spec.model.id.clone();
         Ok(match spec.protocol() {
             Protocol::OpenAi => Self::OpenAi(OpenAiClient::new(OpenAiConfig { auth, model })),
@@ -75,7 +76,11 @@ mod live_tests {
         let messages = [Message::system("Answer in one word."), Message::user("Say hi.")];
         let request = CreateCompletionRequest { messages: &messages, ..Default::default() };
         let store = Arc::new(CredentialStore::in_memory());
-        Client::for_model(spec, &store).unwrap().create_completion_stream(request, |_| {}).await.unwrap()
+        Client::for_model(spec, &store, SessionId::mint())
+            .unwrap()
+            .create_completion_stream(request, |_| {})
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
