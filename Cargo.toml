@@ -25,6 +25,7 @@ serde_json = { version = "1", features = ["raw_value"] }
 similar = "3.2.0"
 tokio = { version = "1.54.0", features = ["full"] }
 tui-markdown = "0.3.12"
+ulid = { version = "3.0.0", features = ["serde"] }
 unicode-width = "0.2"
 
 

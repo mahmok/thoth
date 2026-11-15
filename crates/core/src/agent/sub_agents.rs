@@ -200,8 +200,8 @@ fn interrupted(id: &str) -> ToolResult {
 }
 
 /// A Sub-agent takes the Root agent's model and Thinking level, unless its Persona names its own.
-/// The model is only set when it changes: setting it makes a new client, and a new client starts a
-/// new prompt-cache key, which would throw away what the provider cached for the Sub-agent.
+/// The model is only set when it changes: setting it builds a new client, which is wasted work
+/// when the model is already right.
 fn inherit_settings(sub: &SubAgent, root: &Settings) {
     if sub.persona.model.is_none()
         && let Some(model) = root.model.as_ref()

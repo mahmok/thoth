@@ -548,6 +548,7 @@ mod tests {
     use super::*;
     use crate::auth::store::Credentials as CredentialStore;
     use crate::llm::provider::{Model, ModelSpec, Protocol, Provider};
+    use crate::session::SessionId;
 
     fn client() -> Client {
         Client::new(Config {
@@ -559,6 +560,7 @@ mod tests {
                     Model::new("m").with_protocol(Some(Protocol::Anthropic)),
                 ),
                 Arc::new(CredentialStore::in_memory()),
+                SessionId::mint(),
             ),
         })
     }

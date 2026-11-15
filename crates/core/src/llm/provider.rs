@@ -27,6 +27,9 @@ pub struct Provider {
     pub base_url: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
+    /// The header this provider wants the Session's id in, if it asks for one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_header: Option<String>,
     #[serde(default, rename = "checkedAt")]
     pub checked_at: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -67,6 +70,7 @@ impl Provider {
             protocol: Protocol::OpenAi,
             base_url: String::new(),
             headers: BTreeMap::new(),
+            session_header: None,
             checked_at: 0,
             models: Vec::new(),
             id,
@@ -94,6 +98,7 @@ impl Provider {
             protocol,
             base_url: base_url.into(),
             headers: BTreeMap::new(),
+            session_header: None,
             checked_at: 0,
             models: Vec::new(),
         }
@@ -496,5 +501,25 @@ mod tests {
         other.display_name = "Elsewhere".into();
         other.models = vec![Model::new("m")];
         assert_eq!(builtin("ollama"), other);
+    }
+
+    #[test]
+    fn no_builtin_provider_asks_for_a_session_header() {
+        assert!(Provider::builtins().iter().all(|provider| provider.session_header.is_none()));
+    }
+
+    #[test]
+    fn a_provider_may_name_the_header_it_wants_the_session_id_in() {
+        let mut provider = Provider::custom("gateway");
+        provider.session_header = Some("x-session-id".into());
+        let stored = serde_json::to_value(&provider).unwrap();
+        assert_eq!(stored["sessionHeader"], "x-session-id");
+        let restored: Provider = serde_json::from_value(stored).unwrap();
+        assert_eq!(restored.session_header.as_deref(), Some("x-session-id"));
+
+        let plain = serde_json::to_value(Provider::custom("other")).unwrap();
+        assert!(plain.get("sessionHeader").is_none(), "a provider without one stores nothing: {plain}");
+        let restored: Provider = serde_json::from_value(plain).unwrap();
+        assert_eq!(restored.session_header, None);
     }
 }

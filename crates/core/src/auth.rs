@@ -30,6 +30,7 @@ use serde::Serialize;
 use crate::llm::client::chat::Message;
 use crate::llm::client::error::Failure as ClientError;
 use crate::llm::provider::{AuthHeader, LoginMethod, ModelSpec, Protocol, Provider};
+use crate::session::SessionId;
 
 use credential::Credential;
 use github::{Endpoints, Github};
@@ -86,17 +87,20 @@ pub struct Auth {
     http: reqwest::Client,
     protocol: Protocol,
     provider: Provider,
+    session: Option<SessionId>,
     store: Arc<CredentialStore>,
 }
 
 impl Auth {
     /// The authorisation for one model: its provider, its protocol, and where that protocol
-    /// lives on the provider.
+    /// lives on the provider. Requests carry the id of `session`.
     #[must_use]
     #[inline]
-    pub fn for_model(spec: &ModelSpec, store: Arc<CredentialStore>) -> Self {
+    pub fn for_model(spec: &ModelSpec, store: Arc<CredentialStore>, session: SessionId) -> Self {
         let protocol = spec.protocol();
-        Self::new(spec.provider.as_ref().clone(), protocol, store).with_base_url(spec.provider.base_url_for(protocol))
+        Self::new(spec.provider.as_ref().clone(), protocol, store)
+            .with_base_url(spec.provider.base_url_for(protocol))
+            .with_session(session)
     }
 
     #[must_use]
@@ -113,6 +117,7 @@ impl Auth {
             base_url: provider.base_url_for(protocol).to_owned(),
             provider,
             protocol,
+            session: None,
             store,
             http: http_client(),
             github: Github::new(Endpoints::github()),
@@ -215,6 +220,11 @@ impl Auth {
         for (name, value) in &self.provider.headers {
             request = request.header(name.as_str(), value.as_str());
         }
+        if let Some(header) = self.provider.session_header.as_deref()
+            && let Some(session) = self.session
+        {
+            request = request.header(header, session.to_string());
+        }
         for &(name, value) in extra_headers {
             request = request.header(name, value);
         }
@@ -232,8 +242,23 @@ impl Auth {
 
     #[must_use]
     #[inline]
+    /// The Session whose requests these are, if it is known.
+    pub const fn session_id(&self) -> Option<SessionId> {
+        self.session
+    }
+
+    #[must_use]
+    #[inline]
     pub fn with_base_url(mut self, base_url: &str) -> Self {
         base_url.clone_into(&mut self.base_url);
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    /// Sends `session` as this provider's session header, and uses its id as the prompt-cache key.
+    pub const fn with_session(mut self, session: SessionId) -> Self {
+        self.session = Some(session);
         self
     }
 
@@ -406,6 +431,28 @@ mod tests {
         assert_eq!(request.header("authorization"), Some("Bearer sk-1"));
         assert_eq!(request.header("x-extra"), Some("1"));
         assert_eq!(request.body, r#"{"a":1}"#);
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_asks_for_a_session_header_receives_the_session_id() {
+        let server = ok_server().await;
+        let session = SessionId::mint();
+        let mut provider = Provider::builtin("ollama").unwrap();
+        provider.session_header = Some("x-opencode-session".into());
+        post(&auth(provider, Protocol::OpenAi, store()).with_session(session), &server, &[]).await.unwrap();
+
+        let expected = session.to_string();
+        assert_eq!(server.requests()[0].header("x-opencode-session"), Some(expected.as_str()));
+    }
+
+    #[tokio::test]
+    async fn a_session_header_is_not_sent_without_a_session() {
+        let server = ok_server().await;
+        let mut provider = Provider::builtin("ollama").unwrap();
+        provider.session_header = Some("x-opencode-session".into());
+        post(&auth(provider, Protocol::OpenAi, store()), &server, &[]).await.unwrap();
+
+        assert_eq!(server.requests()[0].header("x-opencode-session"), None);
     }
 
     #[tokio::test]

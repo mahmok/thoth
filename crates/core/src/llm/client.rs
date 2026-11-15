@@ -24,8 +24,6 @@ mod sse;
 mod stream;
 
 use core::future::Future;
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use error::Failure as ClientError;
 use negotiation::Negotiation;
@@ -105,9 +103,4 @@ pub trait Llm {
     ) -> impl Future<Output = Result<StreamedCompletion, ClientError>> + Send
     where
         F: FnMut(Delta<'_>) + Send;
-}
-
-fn new_cache_key() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
-    format!("{}-{}-{nanos:x}", crate::APP_NAME, process::id())
 }
