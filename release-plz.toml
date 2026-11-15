@@ -1,0 +1,48 @@
+# release-plz: version calculation, CHANGELOG, git tag and the GitHub Release.
+# cargo-dist then attaches the binaries to that release (see dist-workspace.toml).
+# The flow is documented in docs/releasing.md.
+
+[workspace]
+# Nothing is published to crates.io, so versions are read from git tags instead of
+# the registry. The first run has no tags and releases the current 0.1.0.
+git_only = true
+
+# One tag and one GitHub Release for the whole workspace, named after the binary.
+git_tag_name = "v{{ version }}"
+git_tag_enable = true
+git_release_enable = true
+git_release_name = "v{{ version }}"
+# Pre-1.0 releases are normal releases, not prereleases.
+git_release_type = "prod"
+
+# These are private crates with no API contract to check.
+semver_check = false
+
+# Release only when the commit being released belongs to a merged release PR
+# (branch `release-plz-*`). A stray dispatch of the publish workflow therefore
+# cannot release arbitrary commits.
+release_always = false
+
+# `feat` bumps the minor version even before 1.0.0, matching this project's policy.
+features_always_increment_minor = true
+
+[[package]]
+name = "thoth"
+version_group = "thoth"
+# The whole workspace shares one changelog, written from the binary's perspective.
+changelog_path = "CHANGELOG.md"
+changelog_include = ["thoth-core", "thoth-terminal"]
+
+[[package]]
+name = "thoth-core"
+version_group = "thoth"
+changelog_update = false
+git_tag_enable = false
+git_release_enable = false
+
+[[package]]
+name = "thoth-terminal"
+version_group = "thoth"
+changelog_update = false
+git_tag_enable = false
+git_release_enable = false

@@ -3,12 +3,19 @@ name = "thoth"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 
 [dependencies]
 thoth-core.workspace = true
 thoth-terminal.workspace = true
 color-eyre.workspace = true
 tokio.workspace = true
+
+[package.metadata.dist]
+# The workspace is `publish = false`, which makes cargo-dist skip every package by
+# default. `thoth` is the one binary we ship.
+dist = true
 
 [lints]
 workspace = true
