@@ -36,6 +36,8 @@ mod stats;
 /// The shared test harness and the widget fixtures.
 mod testing;
 mod theme;
+/// Short-lived messages drawn over the screen.
+mod toast;
 mod units;
 
 extern crate alloc;

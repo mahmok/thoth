@@ -25,6 +25,10 @@ pub struct Harness {
     pub app: TerminalApp,
     pub scripted: Scripted,
     pub terminal: Terminal<TestBackend>,
+    /// The app's clock, in milliseconds. Nothing here sleeps: tests move it with [`advance`].
+    ///
+    /// [`advance`]: Harness::advance
+    pub now: u64,
 }
 
 impl Harness {
@@ -39,7 +43,13 @@ impl Harness {
             app: TerminalApp::new(Client::open(harness).unwrap()),
             scripted,
             terminal: Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap(),
+            now: 0,
         }
+    }
+
+    /// Moves the app's clock forward, so a timed toast can expire without sleeping.
+    pub fn advance(&mut self, millis: u64) {
+        self.now = self.now.saturating_add(millis);
     }
 
     pub fn done(&self) {
@@ -56,22 +66,22 @@ impl Harness {
 
     pub fn mouse(&mut self, kind: MouseEventKind, column: u16, row: u16) {
         let event = MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE };
-        self.app.handle_event(Event::Mouse(event));
+        self.app.handle_event(Event::Mouse(event), self.now);
         let _changed = self.app.poll_events();
     }
 
     pub fn paste(&mut self, text: &str) {
-        self.app.handle_event(Event::Paste(text.to_owned()));
+        self.app.handle_event(Event::Paste(text.to_owned()), self.now);
         let _changed = self.app.poll_events();
     }
 
     pub fn press(&mut self, code: KeyCode) {
-        self.app.handle_event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+        self.app.handle_event(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)), self.now);
         let _changed = self.app.poll_events();
     }
 
     pub fn press_with_modifiers(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        self.app.handle_event(Event::Key(KeyEvent::new(code, modifiers)));
+        self.app.handle_event(Event::Key(KeyEvent::new(code, modifiers)), self.now);
         let _changed = self.app.poll_events();
     }
 
@@ -85,7 +95,7 @@ impl Harness {
 
     pub fn screen(&mut self) -> String {
         let _changed = self.app.poll_events();
-        self.terminal.draw(|frame| self.app.render(frame)).unwrap();
+        self.terminal.draw(|frame| self.app.render(frame, self.now)).unwrap();
         buffer_text(&self.terminal)
     }
 

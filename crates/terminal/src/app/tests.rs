@@ -1,4 +1,5 @@
 use alloc::collections::BTreeSet;
+use core::time::Duration;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::style::Color;
@@ -618,6 +619,71 @@ fn a_slash_in_the_key_prompt_opens_no_picker() {
 fn the_footer_shows_the_usage_summary() {
     let mut h = Harness::new();
     assert!(h.footer().trim_start().starts_with("Requests: 0 | Last: - | Total: 0 tokens"), "{}", h.footer());
+}
+
+/// The screen row that shows `text`.
+fn row_of(h: &mut Harness, text: &str) -> u16 {
+    let screen = h.screen();
+    u16::try_from(screen.lines().position(|line| line.contains(text)).unwrap()).unwrap()
+}
+
+fn drag(h: &mut Harness, from: (u16, u16), to: (u16, u16)) {
+    h.mouse(MouseEventKind::Down(MouseButton::Left), from.0, from.1);
+    h.mouse(MouseEventKind::Drag(MouseButton::Left), to.0, to.1);
+    h.mouse(MouseEventKind::Up(MouseButton::Left), to.0, to.1);
+}
+
+#[test]
+fn copying_from_the_chat_says_copied_in_the_top_right_corner() {
+    let mut h = Harness::new();
+    h.send("hello world");
+    h.done();
+    let row = row_of(&mut h, "you: hello world");
+    // "you: " takes five columns, so "hello" starts at column six.
+    drag(&mut h, (6, row), (10, row));
+
+    let screen = h.screen();
+    let toast = screen.lines().nth(1).unwrap();
+    assert!(toast.trim_end().ends_with("copied"), "the toast is at the top right:\n{screen}");
+    assert!(toast.find("copied").unwrap() > toast.len().div_euclid(2), "it is on the right:\n{screen}");
+    assert!(screen.lines().next().unwrap().contains("THOTH"), "the header is not disturbed:\n{screen}");
+}
+
+#[test]
+fn the_copied_toast_clears_after_one_second() {
+    let mut h = Harness::new();
+    h.send("hello world");
+    h.done();
+    let row = row_of(&mut h, "you: hello world");
+    drag(&mut h, (6, row), (10, row));
+    assert!(h.screen().contains("copied"));
+
+    h.advance(1_000);
+    let screen = h.screen();
+    assert!(!screen.contains("copied"), "the toast has gone:\n{screen}");
+    assert!(screen.contains("you: hello world"), "the chat is untouched:\n{screen}");
+}
+
+#[test]
+fn copying_from_the_prompt_also_says_copied() {
+    let mut h = Harness::new();
+    h.type_text("hello world");
+    let row = row_of(&mut h, "hello world");
+    // The rule is one row tall and the text sits one column in, so "hello" starts at column one.
+    drag(&mut h, (1, row), (6, row));
+
+    assert!(h.screen().lines().nth(1).unwrap().contains("copied"));
+}
+
+#[test]
+fn a_toast_timeout_is_settable() {
+    let mut h = Harness::new();
+    h.app.notify("saved", Duration::from_secs(5), h.now);
+    assert!(h.screen().contains("saved"));
+    h.advance(4_999);
+    assert!(h.screen().contains("saved"));
+    h.advance(1);
+    assert!(!h.screen().contains("saved"));
 }
 
 #[test]

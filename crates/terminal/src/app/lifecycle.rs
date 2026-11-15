@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use crossterm::event;
 use ratatui::DefaultTerminal;
+use thoth_core::auth::credential::now_ms;
 
 use super::TerminalApp;
 use crate::modes::Modes;
@@ -29,7 +30,10 @@ impl TerminalApp {
         let mut dirty = true;
         let mut drawn = Instant::now();
         loop {
+            let now = now_ms();
             dirty |= self.poll_events();
+            // A toast takes itself down once its time is up.
+            dirty |= self.expire_toast(now);
             if self.quit {
                 return Ok(());
             }
@@ -38,7 +42,7 @@ impl TerminalApp {
                 dirty = true;
             }
             if dirty {
-                let _frame = terminal.draw(|frame| self.render(frame))?;
+                let _frame = terminal.draw(|frame| self.render(frame, now_ms()))?;
                 dirty = false;
                 drawn = Instant::now();
             }
@@ -47,7 +51,7 @@ impl TerminalApp {
             // input (a paste, a mouse drag) costs one redraw rather than one per event.
             let mut wait = TICK;
             while event::poll(wait)? {
-                self.handle_event(event::read()?);
+                self.handle_event(event::read()?, now_ms());
                 dirty = true;
                 wait = Duration::ZERO;
             }
