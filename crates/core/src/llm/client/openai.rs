@@ -47,7 +47,7 @@ impl OpenAiClient {
                 request.tool_choice.forbids(request.tools).then_some("none"),
             ),
             messages: request.messages,
-            prompt_cache_key: self.config.auth.session_id().map(|session| session.to_string()),
+            prompt_cache_key: self.config.auth.prompt_cache_key(),
             reasoning_effort: effort,
             stream_options: StreamOptions { include_usage: true },
         };

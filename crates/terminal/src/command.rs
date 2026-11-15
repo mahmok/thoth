@@ -252,14 +252,16 @@ fn session_choices(client: &Client) -> Vec<(SessionId, Choice)> {
     client
         .sessions()
         .into_iter()
-        .map(|(id, busy)| {
+        .enumerate()
+        .map(|(index, (id, busy))| {
             let note = match (id == client.session_id(), busy) {
                 (true, true) => "current, working",
                 (true, false) => "current",
                 (false, true) => "working",
                 (false, false) => "",
             };
-            (id, Choice::new(id.to_string(), format!("session {id}"), note))
+            let name = format!("session {}", index.saturating_add(1));
+            (id, Choice::new(name.clone(), name, note))
         })
         .collect()
 }
@@ -369,7 +371,8 @@ mod tests {
         let mut services = scripted.services(fixture());
         services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
         let mut harness = Harness::new(services);
-        let session = SessionId::mint();
+        // A fixed, low id keeps the first session first in the creation order the menu shows.
+        let session = "00000000000000000000000001".parse().expect("a ULID string parses");
         harness.start_session_with(session, Box::new(Rc::clone(&scripted.agent)));
         Fixture { harness: Client::open(harness).unwrap(), agent: scripted.agent, session }
     }
@@ -440,13 +443,12 @@ mod tests {
         let agents = open(&mut f.harness, "persona");
         choose(&mut f.harness, &agents, "Helper").unwrap();
         let sessions = open(&mut f.harness, "session");
-        let expected: Vec<String> = f.harness.sessions().iter().map(|(id, _)| format!("session {id}")).collect();
-        assert_eq!(labels(&sessions), expected);
-        let first = format!("session {}", f.session);
-        assert_eq!(choose(&mut f.harness, &sessions, &first), Ok(Ran::Done));
+        assert_eq!(labels(&sessions), ["session 1", "session 2"]);
+        let keys: Vec<_> = sessions.items.iter().map(|choice| choice.key.as_str()).collect();
+        assert_eq!(keys, ["session 1", "session 2"], "sessions are named by creation order, not id");
+        assert_eq!(choose(&mut f.harness, &sessions, "session 1"), Ok(Ran::Done));
         assert_eq!(f.harness.session_id(), f.session);
-        let unknown = SessionId::mint().to_string();
-        assert_eq!(run(&mut f.harness, "session", Some(&unknown)), Err(Refused::UnknownChoice));
+        assert_eq!(run(&mut f.harness, "session", Some("session 3")), Err(Refused::UnknownChoice));
     }
 
     #[test]
@@ -457,10 +459,10 @@ mod tests {
         choose(&mut f.harness, &agents, "Helper").unwrap();
         let second = f.harness.session_id();
         assert_ne!(second, first);
-        assert_eq!(run(&mut f.harness, "close-session", Some(&second.to_string())), Ok(Ran::Done));
+        assert_eq!(run(&mut f.harness, "close-session", Some("session 2")), Ok(Ran::Done));
         assert_eq!(f.harness.session_id(), first);
         assert_eq!(f.harness.sessions().len(), 1);
-        assert_eq!(run(&mut f.harness, "close-session", Some(&first.to_string())), Err(Refused::LastSession));
+        assert_eq!(run(&mut f.harness, "close-session", Some("session 1")), Err(Refused::LastSession));
     }
 
     #[test]

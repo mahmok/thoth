@@ -51,7 +51,7 @@ impl Client {
         let prompt = &owned_prompt;
         let include_thoughts = request.thinking != Thinking::Off;
         self.negotiation
-            .send(request.thinking, levels(request.thinking), |level| {
+            .send_refusing_status(request.thinking, levels(request.thinking), |level| {
                 let level = *level;
                 async move {
                     self.config
@@ -118,7 +118,7 @@ struct Prompt<'request> {
 
 impl<'request> Prompt<'request> {
     fn new(history: &'request [Message]) -> Self {
-        let (system, contents) = translate(history);
+        let (system, contents) = lowering::lower(history, Lowering::default());
         Prompt { contents, system }
     }
 }
@@ -429,12 +429,12 @@ impl<'request> lowering::Dialect<'request> for Lowering<'request> {
             self.names.insert(&call.id, &call.function.name);
         }
         // Kept parts go back first, exactly as they arrived: tool turns need their signatures.
-        let mut signed_texts: Vec<&'request str> = Vec::new();
+        let mut signed_text = false;
         let mut signed_calls: Vec<SignedCall<'request>> = Vec::new();
         let mut parts: Vec<WirePart<'request>> = Vec::new();
         for part in message.reasoning.iter().filter_map(Reasoning::google) {
-            if let Some(text) = part.get("text").and_then(Value::as_str) {
-                signed_texts.push(text);
+            if part.get("text").and_then(Value::as_str).is_some_and(|text| !text.is_empty()) {
+                signed_text = true;
             }
             if let Some(call) = part.get("functionCall") {
                 signed_calls.push(SignedCall {
@@ -445,7 +445,8 @@ impl<'request> lowering::Dialect<'request> for Lowering<'request> {
             }
             parts.push(WirePart::Kept(part));
         }
-        if let Some(text) = message.text().filter(|text| !signed_texts.contains(text)) {
+        // A kept part that carries text owns it: text is never concatenated across a signature.
+        if let Some(text) = message.text().filter(|_| !signed_text) {
             parts.push(WirePart::Text { text });
         }
         parts.extend(
@@ -475,11 +476,6 @@ impl<'request> lowering::Dialect<'request> for Lowering<'request> {
     fn finish(self) -> Self::Output {
         (self.system, self.contents)
     }
-}
-
-/// Converts messages to a system instruction and turns.
-fn translate(messages: &[Message]) -> (Option<String>, Vec<WireContent<'_>>) {
-    lowering::lower(messages, Lowering::default())
 }
 
 /// A call's arguments as JSON, or an empty object when they are not JSON.
@@ -565,7 +561,7 @@ mod tests {
             Message::system("be brief"),
             Message::user("go"),
             Message::assistant(Some("hello".into()), vec![call("c1", "read", "{\"path\":\"a\"}")])
-                .with_reasoning(vec![Reasoning::Google(json!({ "text": "hmm", "thoughtSignature": "SIG" }))]),
+                .with_reasoning(vec![Reasoning::Google(json!({ "text": "", "thoughtSignature": "SIG" }))]),
         ];
         let body = body_of(&messages, &[], ToolChoice::Auto, None, true);
 
@@ -575,7 +571,7 @@ mod tests {
         assert_eq!(
             body["contents"][1]["parts"],
             json!([
-                { "text": "hmm", "thoughtSignature": "SIG" },
+                { "text": "", "thoughtSignature": "SIG" },
                 { "text": "hello" },
                 { "functionCall": { "name": "read", "id": "c1", "args": { "path": "a" } } },
             ])
@@ -625,6 +621,34 @@ mod tests {
         let body = body_of(&messages, &[], ToolChoice::Auto, None, true);
 
         assert_eq!(body["contents"][1]["parts"], json!([signed]));
+    }
+
+    #[test]
+    fn a_signed_fragment_does_not_replay_the_whole_text() {
+        let signed = json!({ "text": "lo", "thoughtSignature": "SIG" });
+        let messages = [
+            Message::user("go"),
+            Message::assistant(Some("hello".into()), vec![]).with_reasoning(vec![Reasoning::Google(signed.clone())]),
+        ];
+        let body = body_of(&messages, &[], ToolChoice::Auto, None, true);
+
+        assert_eq!(
+            body["contents"][1]["parts"],
+            json!([signed]),
+            "the signed part carries its fragment, and the text is not concatenated across the boundary"
+        );
+    }
+
+    #[test]
+    fn an_empty_signature_part_leaves_the_plain_text_in_place() {
+        let signed = json!({ "text": "", "thoughtSignature": "TAIL" });
+        let messages = [
+            Message::user("go"),
+            Message::assistant(Some("hello".into()), vec![]).with_reasoning(vec![Reasoning::Google(signed.clone())]),
+        ];
+        let body = body_of(&messages, &[], ToolChoice::Auto, None, true);
+
+        assert_eq!(body["contents"][1]["parts"], json!([signed, { "text": "hello" }]));
     }
 
     #[test]

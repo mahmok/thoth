@@ -18,12 +18,6 @@ impl SessionId {
     pub fn mint() -> Self {
         Self(Ulid::generate())
     }
-
-    #[must_use]
-    #[inline]
-    pub const fn from_ulid(ulid: Ulid) -> Self {
-        Self(ulid)
-    }
 }
 
 impl From<Ulid> for SessionId {
