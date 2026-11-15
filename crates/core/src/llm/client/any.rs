@@ -3,8 +3,10 @@ use alloc::sync::Arc;
 use crate::auth::Auth;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::provider::{Model, ModelSpec, Protocol};
+use crate::session::SessionId;
 
 use super::anthropic::{Client as AnthropicClient, Config as AnthropicConfig};
+use super::google::{Client as GoogleClient, Config as GoogleConfig};
 use super::openai::{OpenAiClient, OpenAiConfig};
 use super::responses::{Client as ResponsesClient, Config as ResponsesConfig};
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, StreamedCompletion};
@@ -18,6 +20,7 @@ pub enum Client {
     Anthropic(AnthropicClient),
     #[cfg(any(test, feature = "testing"))]
     Fake(FakeClient),
+    Google(GoogleClient),
     OpenAi(OpenAiClient),
     Responses(ResponsesClient),
 }
@@ -29,20 +32,15 @@ impl Client {
     ///
     /// Fails for a protocol this build cannot speak.
     #[inline]
-    pub fn for_model(spec: &ModelSpec, store: &Arc<CredentialStore>) -> Result<Self, ClientError> {
-        let auth = Auth::for_model(spec, Arc::clone(store));
+    pub fn for_model(spec: &ModelSpec, store: &Arc<CredentialStore>, session: SessionId) -> Result<Self, ClientError> {
+        let auth = Auth::for_model(spec, Arc::clone(store), session);
         let model = spec.model.id.clone();
         Ok(match spec.protocol() {
             Protocol::OpenAi => Self::OpenAi(OpenAiClient::new(OpenAiConfig { auth, model })),
             Protocol::Anthropic => {
                 Self::Anthropic(AnthropicClient::new(AnthropicConfig { auth, max_tokens: Model::MAX_TOKENS, model }))
             },
-            Protocol::Google => {
-                return Err(ClientError::BadRequest(format!(
-                    "the {} protocol is not supported yet",
-                    Protocol::Google.label()
-                )));
-            },
+            Protocol::Google => Self::Google(GoogleClient::new(GoogleConfig { auth, model })),
             Protocol::Responses => Self::Responses(ResponsesClient::new(ResponsesConfig { auth, model })),
         })
     }
@@ -61,6 +59,7 @@ impl LlmClient for Client {
         match *self {
             Self::OpenAi(ref client) => client.create_completion_stream(request, on_delta).await,
             Self::Anthropic(ref client) => client.create_completion_stream(request, on_delta).await,
+            Self::Google(ref client) => client.create_completion_stream(request, on_delta).await,
             Self::Responses(ref client) => client.create_completion_stream(request, on_delta).await,
             #[cfg(any(test, feature = "testing"))]
             Self::Fake(ref client) => client.create_completion_stream(request, on_delta).await,
@@ -72,20 +71,43 @@ impl LlmClient for Client {
 mod live_tests {
     use super::*;
     use crate::llm::client::chat::Message;
-    use crate::llm::provider::Provider;
 
     async fn ask(spec: &ModelSpec) -> StreamedCompletion {
         let messages = [Message::system("Answer in one word."), Message::user("Say hi.")];
         let request = CreateCompletionRequest { messages: &messages, ..Default::default() };
         let store = Arc::new(CredentialStore::in_memory());
-        Client::for_model(spec, &store).unwrap().create_completion_stream(request, |_| {}).await.unwrap()
+        Client::for_model(spec, &store, SessionId::mint())
+            .unwrap()
+            .create_completion_stream(request, |_| {})
+            .await
+            .unwrap()
     }
 
-    #[test]
-    fn the_google_protocol_is_not_supported_yet() {
-        let spec = ModelSpec::new(Arc::new(Provider::builtin("google").unwrap()), Model::new("gemini-2.5-pro"));
-        let err = Client::for_model(&spec, &Arc::new(CredentialStore::in_memory())).unwrap_err();
-        assert_eq!(err.to_string(), "bad request: the google protocol is not supported yet");
+    #[tokio::test]
+    #[ignore = "needs a real OpenCode Go API key in OPENCODE_API_KEY"]
+    async fn each_gateway_dialect_answers_and_reports_usage() {
+        let Some(key) = std::env::var("OPENCODE_API_KEY").ok().filter(|key| !key.is_empty()) else {
+            return;
+        };
+        let store = Arc::new(CredentialStore::in_memory().with_env("OPENCODE_API_KEY", &key));
+        let provider = Arc::new(crate::llm::provider::Provider::builtin("opencode-go").unwrap());
+        let messages = [Message::system("Answer in one word."), Message::user("Say hi.")];
+
+        for (id, protocol) in [
+            ("glm-5.3", Protocol::OpenAi),
+            ("grok-4.7", Protocol::Responses),
+            ("claude-haiku-5-5", Protocol::Anthropic),
+            ("gemini-4-argon", Protocol::Google),
+        ] {
+            let spec = ModelSpec::new(Arc::clone(&provider), Model::new(id).with_protocol(Some(protocol)));
+            let done = Client::for_model(&spec, &store, SessionId::mint())
+                .unwrap()
+                .create_completion_stream(CreateCompletionRequest { messages: &messages, ..Default::default() }, |_| {})
+                .await
+                .unwrap();
+            assert!(!done.text.is_empty(), "{}", spec.label());
+            assert!(done.usage.is_some(), "{}", spec.label());
+        }
     }
 
     #[tokio::test]

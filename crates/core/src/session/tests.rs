@@ -37,7 +37,7 @@ struct Harness {
     refresh_worker: Rc<ScriptedRefreshWorker>,
     store: Arc<CredentialStore>,
     /// The session this client is viewing; the harness has no say in it.
-    viewing: u64,
+    viewing: SessionId,
     worker: Rc<ScriptedLoginWorker>,
 }
 
@@ -45,10 +45,11 @@ impl Harness {
     fn build(agent: Rc<ScriptedAgent>, logged_in: &[Provider], models: Arc<InMemoryModelsStore>) -> Self {
         let scripted = Scripted::new(agent, logged_in);
         let mut harness = CoreHarness::new(scripted.services(models));
-        harness.start_session_with(1, Box::new(Rc::clone(&scripted.agent)));
+        let viewing = SessionId::mint();
+        harness.start_session_with(viewing, Box::new(Rc::clone(&scripted.agent)));
         Self {
             harness,
-            viewing: 1,
+            viewing,
             agent: scripted.agent,
             worker: scripted.worker,
             refresh_worker: scripted.refresh_worker,
@@ -593,23 +594,35 @@ fn logout_removes_the_saved_login() {
 }
 
 #[test]
+fn the_session_exposes_the_id_it_was_started_under() {
+    let h = Harness::new();
+    assert_eq!(h.harness.session(h.viewing).unwrap().id(), h.viewing);
+}
+
+#[test]
 fn a_session_that_is_not_viewed_keeps_receiving_its_replies() {
     let mut h = Harness::new();
+    let first = h.viewing;
     h.send("hello");
-    h.harness.start_session_with(2, Box::new(ScriptedAgent::new()));
-    h.viewing = 2;
-    assert_eq!(h.harness.sessions(), [(1, true), (2, false)]);
+    let second = SessionId::mint();
+    h.harness.start_session_with(second, Box::new(ScriptedAgent::new()));
+    h.viewing = second;
+    let mut expected = [(first, true), (second, false)];
+    expected.sort_unstable();
+    assert_eq!(h.harness.sessions(), expected);
 
     h.agent.reply(Reply::Event(AgentEvent::Text("hi".into())));
     h.agent.reply(Reply::Done { usage: None });
     let events = h.harness.poll();
     assert!(
-        events.iter().all(|e| matches!(e, HarnessEvent::Session { id: 1, .. })) && !events.is_empty(),
+        events.iter().all(|e| matches!(e, HarnessEvent::Session { id, .. } if *id == first)) && !events.is_empty(),
         "the background session's events are tagged with its id"
     );
-    assert_eq!(h.harness.sessions(), [(1, false), (2, false)]);
+    let mut expected = [(first, false), (second, false)];
+    expected.sort_unstable();
+    assert_eq!(h.harness.sessions(), expected);
 
-    h.viewing = 1;
+    h.viewing = first;
     assert_eq!(h.said_by(Speaker::Agent), ["hi"]);
     assert!(!h.view().busy);
 }
@@ -617,24 +630,28 @@ fn a_session_that_is_not_viewed_keeps_receiving_its_replies() {
 #[test]
 fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
     let mut h = Harness::new();
+    let first = h.viewing;
     let other = ScriptedAgent::new();
-    h.harness.start_session_with(2, Box::new(Rc::clone(&other)));
-    assert!(h.harness.submit(1, "to one".into(), "to one".into()));
+    let second = SessionId::mint();
+    h.harness.start_session_with(second, Box::new(Rc::clone(&other)));
+    assert!(h.harness.submit(first, "to one".into(), "to one".into()));
     assert_eq!(h.agent.prompts(), ["to one"]);
     assert_empty(other.prompts());
-    assert_eq!(h.harness.sessions(), [(1, true), (2, false)]);
+    let mut expected = [(first, true), (second, false)];
+    expected.sort_unstable();
+    assert_eq!(h.harness.sessions(), expected);
 
-    h.harness.cancel_session(1);
+    h.harness.cancel_session(first);
     assert_eq!(h.agent.interrupted(), 1);
     assert_eq!(other.interrupted(), 0);
-    assert!(h.harness.session(1).is_some() && h.harness.session_mut(2).is_some());
-    assert!(h.harness.session(3).is_none());
+    assert!(h.harness.session(first).is_some() && h.harness.session_mut(second).is_some());
+    assert!(h.harness.session(SessionId::mint()).is_none());
 }
 
 #[test]
 fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
     let mut h = Harness::new();
-    h.harness.start_session_with(2, Box::new(ScriptedAgent::new()));
+    h.harness.start_session_with(SessionId::mint(), Box::new(ScriptedAgent::new()));
     h.harness.login(Provider::builtin("github-copilot").unwrap());
     h.worker.event(device_code());
     h.poll();
@@ -684,14 +701,16 @@ fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
 #[test]
 fn closing_a_session_stops_its_turn_and_forgets_it() {
     let mut h = Harness::new();
-    h.harness.start_session_with(2, Box::new(ScriptedAgent::new()));
-    h.harness.submit(1, "hi".into(), "hi".into());
+    let first = h.viewing;
+    let second = SessionId::mint();
+    h.harness.start_session_with(second, Box::new(ScriptedAgent::new()));
+    h.harness.submit(first, "hi".into(), "hi".into());
 
-    assert!(h.harness.close_session(1));
+    assert!(h.harness.close_session(first));
     assert_eq!(h.agent.interrupted(), 1);
-    assert_eq!(h.harness.sessions(), [(2, false)]);
-    assert!(h.harness.session(1).is_none());
-    assert!(h.harness.poll().iter().any(|e| matches!(e, HarnessEvent::SessionClosed(1))));
-    assert!(!h.harness.close_session(1));
-    assert!(!h.harness.submit(1, "late".into(), "late".into()));
+    assert_eq!(h.harness.sessions(), [(second, false)]);
+    assert!(h.harness.session(first).is_none());
+    assert!(h.harness.poll().iter().any(|e| matches!(e, HarnessEvent::SessionClosed(id) if *id == first)));
+    assert!(!h.harness.close_session(first));
+    assert!(!h.harness.submit(first, "late".into(), "late".into()));
 }

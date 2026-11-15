@@ -1,5 +1,7 @@
 /// Events of a Session.
 pub mod event;
+/// The identity of a Session.
+pub mod id;
 /// Token statistics.
 pub mod stats;
 /// What a Session shows clients.
@@ -15,6 +17,7 @@ use crate::agent::skills::SkillSummary;
 use crate::transcript::{Change as TranscriptChange, Speaker};
 
 use event::Event as SessionEvent;
+pub use id::SessionId;
 use stats::Stats;
 use view::View;
 
@@ -36,6 +39,7 @@ pub enum LoginState {
 /// One conversation and its view.
 pub struct Session {
     agent: Box<dyn AgentController>,
+    id: SessionId,
     out: Vec<SessionEvent>,
     stats: Stats,
     view: View,
@@ -54,6 +58,13 @@ impl Session {
             let text = format!("{} loaded\n{}", names.len(), names.join(", "));
             self.say(Speaker::Skills, text);
         }
+    }
+
+    #[must_use]
+    #[inline]
+    /// The identity of this conversation, which does not change with its model or its contents.
+    pub const fn id(&self) -> SessionId {
+        self.id
     }
 
     #[inline]
@@ -106,8 +117,8 @@ impl Session {
     #[must_use]
     #[inline]
     /// Creates a Session around an Agent controller.
-    pub fn new(agent: Box<dyn AgentController>) -> Self {
-        let mut session = Self { agent, stats: Stats::default(), view: View::default(), out: Vec::new() };
+    pub fn new(id: SessionId, agent: Box<dyn AgentController>) -> Self {
+        let mut session = Self { agent, id, stats: Stats::default(), view: View::default(), out: Vec::new() };
         session.announce_skills();
         session.settle();
         session

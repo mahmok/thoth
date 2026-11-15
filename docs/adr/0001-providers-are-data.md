@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Amended by:** [0003 — A gateway may serve several dialects at different paths](0003-a-gateway-may-serve-several-dialects.md)
+
 ## Context
 
 Providers began as a five-variant enum: Ollama, OpenAI, Anthropic, GitHub Copilot, Google. Each

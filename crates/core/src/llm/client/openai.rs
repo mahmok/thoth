@@ -18,8 +18,6 @@ pub struct OpenAiConfig {
 
 #[derive(Debug)]
 pub struct OpenAiClient {
-    /// See [`new_cache_key`](super::new_cache_key).
-    cache_key: String,
     config: OpenAiConfig,
     negotiation: Negotiation,
 }
@@ -28,7 +26,7 @@ impl OpenAiClient {
     #[must_use]
     #[inline]
     pub fn new(config: OpenAiConfig) -> Self {
-        Self { config, negotiation: Negotiation::default(), cache_key: super::new_cache_key() }
+        Self { config, negotiation: Negotiation::default() }
     }
 
     async fn post(&self, request: &CreateCompletionRequest<'_>) -> Result<Response, ClientError> {
@@ -49,7 +47,7 @@ impl OpenAiClient {
                 request.tool_choice.forbids(request.tools).then_some("none"),
             ),
             messages: request.messages,
-            prompt_cache_key: &self.cache_key,
+            prompt_cache_key: self.config.auth.session_id().map(|session| session.to_string()),
             reasoning_effort: effort,
             stream_options: StreamOptions { include_usage: true },
         };
@@ -63,7 +61,8 @@ struct Body<'request> {
     #[serde(flatten)]
     common: Common<'request, Value, &'static str>,
     messages: &'request [Message],
-    prompt_cache_key: &'request str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prompt_cache_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<&'static str>,
     stream_options: StreamOptions,
@@ -232,6 +231,7 @@ mod tests {
         use crate::auth::store::Credentials as CredentialStore;
         use crate::auth::testing::MockServer;
         use crate::llm::provider::{Protocol, Provider};
+        use crate::session::SessionId;
 
         let reply = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n";
         let server = MockServer::start(vec![(
@@ -239,9 +239,11 @@ mod tests {
             vec![(400, "unknown field reasoning_effort".into()), (200, reply.into())],
         )])
         .await;
+        let session = SessionId::mint();
         let auth =
             Auth::new(Provider::builtin("ollama").unwrap(), Protocol::OpenAi, Arc::new(CredentialStore::in_memory()))
-                .with_base_url(&server.url);
+                .with_base_url(&server.url)
+                .with_session(session);
         let client = OpenAiClient::new(OpenAiConfig { model: "plain".into(), auth });
         let messages = [Message::user("hi")];
         let ask = || CreateCompletionRequest { messages: &messages, ..Default::default() };
@@ -251,7 +253,7 @@ mod tests {
         let requests = server.requests();
         assert_eq!(requests.len(), 2);
         assert!(requests[0].body.contains("\"reasoning_effort\":\"medium\""));
-        assert!(requests.iter().all(|r| { r.body.contains(&format!("\"prompt_cache_key\":\"{}-", crate::APP_NAME)) }));
+        assert!(requests.iter().all(|r| r.body.contains(&format!("\"prompt_cache_key\":\"{session}\""))));
         assert!(!requests[1].body.contains("reasoning_effort"));
 
         client.create_completion_stream(ask(), |_| {}).await.unwrap();

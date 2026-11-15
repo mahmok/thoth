@@ -63,8 +63,8 @@ _Avoid_: context, window
 ## Models and providers
 
 **Provider**:
-A service that offers models — a built-in one, or a gateway the user configured. It owns an id, a
-base URL, a protocol, and a way to log in.
+A service that offers models, built in or configured by the user. It owns an id, a login method,
+and a base URL that may differ per protocol.
 _Avoid_: backend, vendor, endpoint
 
 **Model**:
@@ -77,7 +77,7 @@ name at two providers is two different models.
 _Avoid_: model reference, model key, model id
 
 **Protocol**:
-The wire dialect a provider speaks. A provider chooses one; its models inherit it.
+The wire dialect a provider speaks. A model may name its own; otherwise it inherits its provider's.
 _Avoid_: API, format
 
 **Login method**:
@@ -178,8 +178,14 @@ _Avoid_: command, action, mutation
 
 **Session**:
 One conversation and its view: the agent behind it, what the client may show, and the statistics
-for it.
+for it. It is identified by a session id.
 _Avoid_: chat, tab, window
+
+**Session id**:
+The identity of a session: a ULID minted when it starts, independent of its model and of the client
+showing it. It survives clearing the conversation and switching models, is sent to a gateway that
+asks for one, and is the key a session will be stored under.
+_Avoid_: conversation id, thread id, cache key
 
 **Harness**:
 The shared runtime a client talks to: every open session, plus the builder, credentials, models,

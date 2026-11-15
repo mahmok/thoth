@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "testing"))]
 use crate::agent::controller::Controller as AgentController;
 use crate::agent::controller::TokioAgent as TokioAgentController;
 use crate::agent_builder::AgentBuilder;
@@ -14,6 +15,7 @@ use crate::persona::{Info as PersonaInfo, Repository as PersonaRepository};
 use crate::services::Services;
 use crate::session::LoginState;
 use crate::session::Session;
+use crate::session::SessionId;
 use crate::session::event::Event as SessionEvent;
 use crate::session::view::Login as LoginView;
 use crate::transcript::Speaker;
@@ -26,8 +28,8 @@ use core::mem;
 pub enum Event {
     Login(LoginView),
     Notice { speaker: Speaker, text: String },
-    Session { id: u64, event: SessionEvent },
-    SessionClosed(u64),
+    Session { id: SessionId, event: SessionEvent },
+    SessionClosed(SessionId),
 }
 
 #[derive(Debug)]
@@ -36,14 +38,14 @@ pub struct Harness {
     builder: Arc<AgentBuilder>,
     credentials: Arc<CredentialStore>,
     files: Arc<FileReferences>,
+    ids: ulid::Generator,
     login: LoginView,
     logins: LoginSession,
     models: Arc<dyn ModelsStore>,
-    next_session_id: u64,
     out: Vec<Event>,
     personas: Arc<PersonaRepository>,
     refresh: RefreshSession,
-    sessions: BTreeMap<u64, Session>,
+    sessions: BTreeMap<SessionId, Session>,
 }
 
 impl Harness {
@@ -57,7 +59,7 @@ impl Harness {
 
     #[inline]
     /// Interrupts the Session's running turn.
-    pub fn cancel_session(&mut self, session_id: u64) {
+    pub fn cancel_session(&mut self, session_id: SessionId) {
         if let Some(session) = self.sessions.get_mut(&session_id) {
             session.cancel();
         }
@@ -66,7 +68,7 @@ impl Harness {
 
     #[inline]
     /// Cancels and removes a Session. Returns `false` if there was none.
-    pub fn close_session(&mut self, session_id: u64) -> bool {
+    pub fn close_session(&mut self, session_id: SessionId) -> bool {
         let Some(mut session) = self.sessions.remove(&session_id) else {
             return false;
         };
@@ -76,24 +78,29 @@ impl Harness {
     }
 
     #[inline]
-    /// Starts a Session under the next free id, and returns the id.
-    pub fn create_session(&mut self, persona: &str) -> Option<u64> {
-        while self.sessions.contains_key(&self.next_session_id) {
-            self.next_session_id = self.next_session_id.saturating_add(1);
-        }
-        let id = self.next_session_id;
+    /// Starts a Session with a freshly minted id, and returns the id.
+    pub fn create_session(&mut self, persona: &str) -> Option<SessionId> {
+        let id = self.mint_session_id();
         self.insert_session(id, persona).then_some(id)
     }
 
-    fn insert_session(&mut self, session_id: u64, persona: &str) -> bool {
+    fn insert_session(&mut self, session_id: SessionId, persona: &str) -> bool {
         let Some(found) = self.personas.get(persona) else {
             self.say(Speaker::Error, format!("Persona {persona} not found."));
             return false;
         };
-        let agent = Arc::new(Arc::clone(&self.builder).build_root(found, Arc::clone(&self.personas)));
-        let session = Session::new(Box::new(TokioAgentController::new(agent)));
+        let agent = Arc::new(Arc::clone(&self.builder).build_root(session_id, found, Arc::clone(&self.personas)));
+        let session = Session::new(session_id, Box::new(TokioAgentController::new(agent)));
         drop(self.sessions.insert(session_id, session));
         true
+    }
+
+    /// An id from the Harness's own generator, so Sessions sort in the order they were created.
+    fn mint_session_id(&mut self) -> SessionId {
+        match self.ids.generate() {
+            Ok(ulid) => SessionId::from(ulid),
+            Err(overflow) => SessionId::from(overflow.commit_overflow_increment()),
+        }
     }
 
     #[must_use]
@@ -154,7 +161,7 @@ impl Harness {
             personas: Arc::new(services.personas),
             builder: Arc::new(services.builder),
             login: LoginView::default(),
-            next_session_id: 1,
+            ids: ulid::Generator::new(),
             out: Vec::new(),
         }
     }
@@ -169,7 +176,7 @@ impl Harness {
         }
         let refreshed = self.refresh.poll();
         self.show(Speaker::Models, refreshed);
-        let mut ids: Vec<u64> = self.sessions.keys().copied().collect();
+        let mut ids: Vec<SessionId> = self.sessions.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
             let events = match self.sessions.get_mut(&id) {
@@ -227,19 +234,19 @@ impl Harness {
 
     #[must_use]
     #[inline]
-    pub fn session(&self, session_id: u64) -> Option<&Session> {
+    pub fn session(&self, session_id: SessionId) -> Option<&Session> {
         self.sessions.get(&session_id)
     }
 
     #[inline]
-    pub fn session_mut(&mut self, session_id: u64) -> Option<&mut Session> {
+    pub fn session_mut(&mut self, session_id: SessionId) -> Option<&mut Session> {
         self.sessions.get_mut(&session_id)
     }
 
     #[must_use]
     #[inline]
     /// The ids of the Sessions, with whether each is busy.
-    pub fn sessions(&self) -> Vec<(u64, bool)> {
+    pub fn sessions(&self) -> Vec<(SessionId, bool)> {
         let mut all: Vec<_> = self.sessions.iter().map(|(id, session)| (*id, session.view().busy)).collect();
         all.sort_unstable();
         all
@@ -261,7 +268,7 @@ impl Harness {
 
     #[inline]
     /// Starts a Session with a Persona under `session_id`, unless one exists.
-    pub fn start_session(&mut self, session_id: u64, persona: &str) {
+    pub fn start_session(&mut self, session_id: SessionId, persona: &str) {
         if !self.sessions.contains_key(&session_id) {
             let _inserted = self.insert_session(session_id, persona);
         }
@@ -270,20 +277,20 @@ impl Harness {
     #[cfg(any(test, feature = "testing"))]
     #[inline]
     /// Starts a Session with a given controller, for tests.
-    pub fn start_session_with(&mut self, session_id: u64, controller: Box<dyn AgentController>) {
-        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(controller));
+    pub fn start_session_with(&mut self, session_id: SessionId, controller: Box<dyn AgentController>) {
+        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(session_id, controller));
     }
 
     #[inline]
     /// Sends a prompt to a Session, or the secret being asked for. Returns whether it was taken.
-    pub fn submit(&mut self, session_id: u64, shown: String, full: String) -> bool {
+    pub fn submit(&mut self, session_id: SessionId, shown: String, full: String) -> bool {
         let taken = self.submit_prompt(session_id, shown, full);
         self.sync_view();
         taken
     }
 
     /// Takes a prompt. A pending login secret goes to the login, anything else to the Session.
-    fn submit_prompt(&mut self, session_id: u64, shown: String, full: String) -> bool {
+    fn submit_prompt(&mut self, session_id: SessionId, shown: String, full: String) -> bool {
         if shown.is_empty() {
             return false;
         }

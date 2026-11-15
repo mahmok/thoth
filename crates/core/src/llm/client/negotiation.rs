@@ -34,6 +34,43 @@ impl Negotiation {
         Fut: Future<Output = Result<T, ClientError>> + Send,
         Callback: Fn(&S) -> Fut + Send,
     {
+        self.negotiate(level, settings, send, is_setting_refusal).await
+    }
+
+    #[inline]
+    #[expect(clippy::result_large_err, reason = "the negotiation methods share the client's error type")]
+    /// Sends like [`send`](Self::send), and also treats a Gemini `error.status` as a setting refusal.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the last error when no setting is accepted, or at once with an error that is not about a setting.
+    pub(super) async fn send_refusing_status<Callback, S, T, Fut>(
+        &self,
+        level: Thinking,
+        settings: &[S],
+        send: Callback,
+    ) -> Result<T, ClientError>
+    where
+        S: Sync,
+        Fut: Future<Output = Result<T, ClientError>> + Send,
+        Callback: Fn(&S) -> Fut + Send,
+    {
+        self.negotiate(level, settings, send, |error| is_setting_refusal(error) || is_status_refusal(error)).await
+    }
+
+    #[expect(clippy::result_large_err, reason = "the negotiation methods share the client's error type")]
+    async fn negotiate<Callback, S, T, Fut>(
+        &self,
+        level: Thinking,
+        settings: &[S],
+        send: Callback,
+        refuses: fn(&ClientError) -> bool,
+    ) -> Result<T, ClientError>
+    where
+        S: Sync,
+        Fut: Future<Output = Result<T, ClientError>> + Send,
+        Callback: Fn(&S) -> Fut + Send,
+    {
         let start = self.worked.lock_unpoisoned().get(&level).copied().unwrap_or(0);
         let mut next = start;
         loop {
@@ -45,7 +82,7 @@ impl Negotiation {
                     let _previous = self.worked.lock_unpoisoned().insert(level, next);
                     return Ok(done);
                 },
-                Err(error) if is_setting_refusal(&error) && next.saturating_add(1) < settings.len() => {
+                Err(error) if refuses(&error) && next.saturating_add(1) < settings.len() => {
                     next = next.saturating_add(1);
                 },
                 Err(error) => return Err(error),
@@ -58,6 +95,19 @@ fn is_setting_refusal(error: &ClientError) -> bool {
     error.bad_request().is_some_and(|message| {
         let lowered = message.to_lowercase();
         message.is_empty() || SETTING_WORDS.iter().any(|word| lowered.contains(word))
+    })
+}
+
+/// Gemini names the kind of request error in `error.status`. The message for a bad thinking
+/// level is unpublished, so the status is the only dependable signal.
+fn is_status_refusal(error: &ClientError) -> bool {
+    const STATUSES: [&str; 2] = ["FAILED_PRECONDITION", "INVALID_ARGUMENT"];
+    error.bad_request().is_some_and(|message| {
+        serde_json::from_str::<serde_json::Value>(message).is_ok_and(|body| {
+            body.pointer("/error/status")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|status| STATUSES.contains(&status))
+        })
     })
 }
 
@@ -114,6 +164,38 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn a_google_status_is_a_refusal_even_without_setting_words() {
+        let calls = AtomicUsize::new(0);
+        let refusal =
+            r#"{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}"#;
+        let result: Result<usize, ClientError> = Negotiation::default()
+            .send_refusing_status(Thinking::Max, &[0usize, 1usize], |&setting| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                async move { if setting == 0 { Err(ClientError::BadRequest(refusal.into())) } else { Ok(setting) } }
+            })
+            .await;
+
+        assert_eq!(result.unwrap(), 1);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn a_structured_bad_request_from_another_dialect_is_not_retried() {
+        let calls = AtomicUsize::new(0);
+        let refusal =
+            r#"{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}"#;
+        let result: Result<usize, ClientError> = Negotiation::default()
+            .send(Thinking::Max, &[0usize, 1usize], |&setting| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                async move { if setting == 0 { Err(ClientError::BadRequest(refusal.into())) } else { Ok(setting) } }
+            })
+            .await;
+
+        assert!(result.is_err(), "a status is Google's signal, not a shared one");
         assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 

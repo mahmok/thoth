@@ -12,6 +12,8 @@ pub mod error;
 #[expect(clippy::expect_used, reason = "test support: an exhausted script should fail the test")]
 /// A scripted client for tests.
 pub mod fake;
+/// The Gemini `generateContent` client.
+pub mod google;
 /// Lowering a conversation for a dialect.
 mod lowering;
 /// Falling back to settings a model accepts.
@@ -24,8 +26,6 @@ mod sse;
 mod stream;
 
 use core::future::Future;
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use error::Failure as ClientError;
 use negotiation::Negotiation;
@@ -105,9 +105,4 @@ pub trait Llm {
     ) -> impl Future<Output = Result<StreamedCompletion, ClientError>> + Send
     where
         F: FnMut(Delta<'_>) + Send;
-}
-
-fn new_cache_key() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
-    format!("{}-{}-{nanos:x}", crate::APP_NAME, process::id())
 }

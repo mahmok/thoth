@@ -12,11 +12,12 @@ use super::*;
 use crate::agent::tools::tool::{
     Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits,
 };
+use crate::auth::testing::MockServer;
 use crate::llm::client::StreamedCompletion;
 use crate::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
 use crate::llm::client::error::Failure as ClientError;
 use crate::llm::client::fake::Client as FakeClient;
-use crate::llm::provider::{Model, ModelSpec, Provider};
+use crate::llm::provider::{LoginMethod, Model, ModelSpec, Protocol, Provider};
 use crate::persona::Persona;
 use crate::test::assert_empty;
 
@@ -116,6 +117,31 @@ fn the_model_can_be_switched() {
     let other = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4.1"));
     agent.apply(Change::SetModel(other.clone()));
     assert_eq!(agent.model(), Some(other));
+}
+
+#[tokio::test]
+async fn every_request_of_a_session_carries_its_id_across_a_model_switch() {
+    let reply = concat!(
+        "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"hi\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n",
+    );
+    let server = MockServer::start(vec![("/responses", vec![(200, reply.into()), (200, reply.into())])]).await;
+    let provider =
+        Arc::new(Provider::new("gateway", "Gateway", LoginMethod::None, Protocol::Responses, server.url.clone()));
+    let spec = |id: &str| ModelSpec::new(Arc::clone(&provider), Model::new(id));
+    let session = SessionId::mint();
+    let agent = Agent::new(Arc::new(CredentialStore::in_memory())).with_session_id(session).with_model(spec("first"));
+
+    agent.respond("hi".into(), |_| {}).await.unwrap();
+    agent.apply(Change::SetModel(spec("second")));
+    agent.respond("hi".into(), |_| {}).await.unwrap();
+
+    let requests = server.requests();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        let body: Value = serde_json::from_str(&request.body).unwrap();
+        assert_eq!(body["prompt_cache_key"], session.to_string(), "{body}");
+    }
 }
 
 #[test]

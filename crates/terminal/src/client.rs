@@ -4,6 +4,7 @@ use thoth_core::llm::provider::{ModelSpec, Provider};
 use thoth_core::persona::Info as PersonaInfo;
 use thoth_core::session::LoginState;
 use thoth_core::session::Session;
+use thoth_core::session::SessionId;
 use thoth_core::session::view::{Login as LoginView, View};
 
 /// A Harness and the one session this terminal is showing. Which session is viewed is the
@@ -14,7 +15,7 @@ use thoth_core::session::view::{Login as LoginView, View};
 /// the view first, so "the viewed session exists" cannot be bypassed.
 pub struct Client {
     harness: Harness,
-    session: u64,
+    session: SessionId,
 }
 
 impl Client {
@@ -24,10 +25,10 @@ impl Client {
         self.harness.cancel_session(self.session);
     }
 
-    /// Closes `session`, moving the view to the lowest-numbered one left if it was shown. The
-    /// last session is never closed.
-    pub fn close(&mut self, session: u64) -> bool {
-        let ids: Vec<u64> = self.harness.sessions().iter().map(|&(id, _)| id).collect();
+    /// Closes `session`, moving the view to the earliest one left if it was shown. The last
+    /// session is never closed.
+    pub fn close(&mut self, session: SessionId) -> bool {
+        let ids: Vec<SessionId> = self.harness.sessions().iter().map(|&(id, _)| id).collect();
         if ids.len() < 2 || !ids.contains(&session) {
             return false;
         }
@@ -41,7 +42,7 @@ impl Client {
     }
 
     /// Starts a Session playing `persona`, without moving the view to it.
-    pub fn create_session(&mut self, persona: &str) -> Option<u64> {
+    pub fn create_session(&mut self, persona: &str) -> Option<SessionId> {
         self.harness.create_session(persona)
     }
 
@@ -113,7 +114,7 @@ impl Client {
         self.harness.session(self.session).expect("the viewed session exists")
     }
 
-    pub const fn session_id(&self) -> u64 {
+    pub const fn session_id(&self) -> SessionId {
         self.session
     }
 
@@ -123,7 +124,7 @@ impl Client {
     }
 
     /// Every session's id, and whether it is working.
-    pub fn sessions(&self) -> Vec<(u64, bool)> {
+    pub fn sessions(&self) -> Vec<(SessionId, bool)> {
         self.harness.sessions()
     }
 
@@ -137,7 +138,7 @@ impl Client {
     }
 
     /// Shows `session` instead; false when there is no such session.
-    pub fn switch(&mut self, session: u64) -> bool {
+    pub fn switch(&mut self, session: SessionId) -> bool {
         let exists = self.harness.session(session).is_some();
         if exists {
             self.session = session;
@@ -167,7 +168,7 @@ mod tests {
         let mut services = scripted.services(fixture());
         services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
         let mut harness = Harness::new(services);
-        harness.start_session_with(1, Box::new(Rc::clone(&scripted.agent)));
+        harness.start_session_with(SessionId::mint(), Box::new(Rc::clone(&scripted.agent)));
         Client::open(harness).unwrap()
     }
 
@@ -183,10 +184,11 @@ mod tests {
     #[test]
     fn closing_the_viewed_session_leaves_the_facade_viewing_another() {
         let mut client = client();
+        let first = client.session_id();
         let other = client.create_session("helper").expect("the helper persona exists");
-        assert_eq!(client.session_id(), 1);
+        assert_eq!(client.session_id(), first);
 
-        assert!(client.close(1));
+        assert!(client.close(first));
 
         assert_eq!(client.session_id(), other);
         assert!(views_a_session(&client), "the view moved with the close");
@@ -195,31 +197,34 @@ mod tests {
     #[test]
     fn closing_another_session_keeps_the_view_where_it_was() {
         let mut client = client();
+        let first = client.session_id();
         let other = client.create_session("helper").expect("the helper persona exists");
 
         assert!(client.close(other));
 
-        assert_eq!(client.session_id(), 1);
+        assert_eq!(client.session_id(), first);
         assert!(views_a_session(&client));
     }
 
     #[test]
     fn the_last_session_is_never_closed_and_the_view_does_not_move() {
         let mut client = client();
+        let first = client.session_id();
 
-        assert!(!client.close(1));
+        assert!(!client.close(first));
 
-        assert_eq!(client.session_id(), 1);
+        assert_eq!(client.session_id(), first);
         assert!(views_a_session(&client), "the last session stays viewable");
     }
 
     #[test]
     fn switching_to_a_session_that_does_not_exist_changes_nothing() {
         let mut client = client();
+        let first = client.session_id();
 
-        assert!(!client.switch(99));
+        assert!(!client.switch(SessionId::mint()));
 
-        assert_eq!(client.session_id(), 1);
+        assert_eq!(client.session_id(), first);
         assert!(views_a_session(&client));
     }
 }

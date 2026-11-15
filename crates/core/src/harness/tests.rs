@@ -60,7 +60,7 @@ fn over_budget(fake: FakeClient, tree: &TempTree) -> Harness {
 }
 
 /// Polls until the Session is idle, so a Turn started by `submit` has finished.
-async fn settle(harness: &mut Harness, id: u64) {
+async fn settle(harness: &mut Harness, id: SessionId) {
     time::timeout(Duration::from_secs(5), async {
         loop {
             let _events = harness.poll();
@@ -74,9 +74,21 @@ async fn settle(harness: &mut Harness, id: u64) {
     .expect("the turn should finish");
 }
 
-async fn say(harness: &mut Harness, id: u64, prompt: &str) {
+async fn say(harness: &mut Harness, id: SessionId, prompt: &str) {
     harness.submit(id, prompt.into(), prompt.into());
     settle(harness, id).await;
+}
+
+#[test]
+fn two_sessions_minted_in_the_same_millisecond_sort_in_creation_order() {
+    let tree = TempTree::new("harness-session-order");
+    let mut harness = over_budget(FakeClient::new(vec![]), &tree);
+
+    let first = harness.create_session("root").unwrap();
+    let second = harness.create_session("root").unwrap();
+
+    assert!(first < second, "{first} should sort before {second}");
+    assert_eq!(harness.sessions().into_iter().map(|(id, _)| id).collect::<Vec<_>>(), [first, second]);
 }
 
 #[tokio::test]

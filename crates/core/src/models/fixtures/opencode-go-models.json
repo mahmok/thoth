@@ -1,0 +1,113 @@
+{
+    "object": "list",
+    "data": [
+        {
+            "id": "glm-5.3",
+            "object": "model",
+            "name": "GLM-5.3",
+            "type": "chat",
+            "capabilities": {
+                "tools": { "supported": true },
+                "reasoning": { "effort": ["low", "medium", "high"] }
+            },
+            "limit": { "context": 1000000, "output": 131072 },
+            "api": {
+                "chat-completions": {
+                    "base_url": "https://opencode.ai/inference/go/openai/v1",
+                    "sdk": {
+                        "aisdk": "@ai-sdk/openai-compatible",
+                        "opencodeai": "@opencode/ai/providers/openai-compatible"
+                    },
+                    "compatibility": { "reasoning_field": "reasoning_content" }
+                }
+            }
+        },
+        {
+            "id": "grok-4.7",
+            "object": "model",
+            "name": "Grok 4.7",
+            "type": "chat",
+            "capabilities": {
+                "tools": { "supported": true }
+            },
+            "limit": { "context": 500000, "output": 500000 },
+            "api": {
+                "responses": {
+                    "base_url": "https://opencode.ai/inference/go/openai/v1",
+                    "sdk": {
+                        "aisdk": "@ai-sdk/openai",
+                        "opencodeai": "@opencode/ai/providers/openai/responses"
+                    }
+                }
+            }
+        },
+        {
+            "id": "claude-haiku-5-5",
+            "object": "model",
+            "name": "Claude Haiku 5.5",
+            "type": "chat",
+            "capabilities": {
+                "tools": { "supported": true }
+            },
+            "limit": { "context": 1000000, "output": 128000 },
+            "api": {
+                "messages": {
+                    "base_url": "https://opencode.ai/inference/go/anthropic/v1",
+                    "sdk": {
+                        "aisdk": "@ai-sdk/anthropic",
+                        "opencodeai": "@opencode/ai/providers/anthropic"
+                    }
+                }
+            }
+        },
+        {
+            "id": "gemini-4-argon",
+            "object": "model",
+            "name": "Gemini 4 Argon",
+            "type": "chat",
+            "capabilities": {
+                "tools": { "supported": true }
+            },
+            "limit": { "context": 1048576, "output": 65536 },
+            "api": {
+                "generate-content": {
+                    "base_url": "https://opencode.ai/inference/go/google/v1beta",
+                    "sdk": {
+                        "aisdk": "@ai-sdk/google",
+                        "opencodeai": "@opencode/ai/providers/google"
+                    }
+                }
+            }
+        },
+        {
+            "id": "telepath-1",
+            "object": "model",
+            "name": "Telepath 1",
+            "type": "chat",
+            "capabilities": {
+                "tools": { "supported": true }
+            },
+            "limit": { "context": 200000, "output": 65536 },
+            "api": {
+                "telepathy": {
+                    "base_url": "https://opencode.ai/inference/go/telepathy"
+                }
+            }
+        },
+        {
+            "id": "no-tools-1",
+            "object": "model",
+            "name": "No Tools 1",
+            "type": "chat",
+            "capabilities": {
+                "tools": { "supported": false }
+            },
+            "limit": { "context": 128000, "output": 65536 },
+            "api": {
+                "chat-completions": {
+                    "base_url": "https://opencode.ai/inference/go/openai/v1"
+                }
+            }
+        }
+    ]
+}

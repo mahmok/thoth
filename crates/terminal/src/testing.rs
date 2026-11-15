@@ -10,6 +10,7 @@ use thoth_core::agent::controller::Reply;
 use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
 use thoth_core::harness::Harness as CoreHarness;
 use thoth_core::models::testing::fixture;
+use thoth_core::session::SessionId;
 use thoth_core::test::scripted::Scripted;
 
 use crate::app::TerminalApp;
@@ -34,7 +35,7 @@ pub struct Harness {
 impl Harness {
     pub fn build(scripted: Scripted, notice: Option<&str>) -> Self {
         let mut harness = CoreHarness::new(scripted.services(fixture()));
-        harness.start_session_with(1, Box::new(Rc::clone(&scripted.agent)));
+        harness.start_session_with(SessionId::mint(), Box::new(Rc::clone(&scripted.agent)));
         if let Some(text) = notice {
             harness = harness.with_notice(text);
         }

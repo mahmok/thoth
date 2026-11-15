@@ -30,6 +30,7 @@ use serde::Serialize;
 use crate::llm::client::chat::Message;
 use crate::llm::client::error::Failure as ClientError;
 use crate::llm::provider::{AuthHeader, LoginMethod, ModelSpec, Protocol, Provider};
+use crate::session::SessionId;
 
 use credential::Credential;
 use github::{Endpoints, Github};
@@ -86,17 +87,20 @@ pub struct Auth {
     http: reqwest::Client,
     protocol: Protocol,
     provider: Provider,
+    session: Option<SessionId>,
     store: Arc<CredentialStore>,
 }
 
 impl Auth {
     /// The authorisation for one model: its provider, its protocol, and where that protocol
-    /// lives on the provider.
+    /// lives on the provider. Requests carry the id of `session`.
     #[must_use]
     #[inline]
-    pub fn for_model(spec: &ModelSpec, store: Arc<CredentialStore>) -> Self {
+    pub fn for_model(spec: &ModelSpec, store: Arc<CredentialStore>, session: SessionId) -> Self {
         let protocol = spec.protocol();
-        Self::new(spec.provider.as_ref().clone(), protocol, store).with_base_url(spec.provider.base_url_for(protocol))
+        Self::new(spec.provider.as_ref().clone(), protocol, store)
+            .with_base_url(&spec.provider.base_url_for(protocol))
+            .with_session(session)
     }
 
     #[must_use]
@@ -110,9 +114,10 @@ impl Auth {
     #[inline]
     pub fn new(provider: Provider, protocol: Protocol, store: Arc<CredentialStore>) -> Self {
         Self {
-            base_url: provider.base_url_for(protocol).to_owned(),
+            base_url: provider.base_url_for(protocol).into_owned(),
             provider,
             protocol,
+            session: None,
             store,
             http: http_client(),
             github: Github::new(Endpoints::github()),
@@ -215,6 +220,11 @@ impl Auth {
         for (name, value) in &self.provider.headers {
             request = request.header(name.as_str(), value.as_str());
         }
+        if let Some(header) = self.provider.session_header.as_deref()
+            && let Some(session) = self.session
+        {
+            request = request.header(header, session.to_string());
+        }
         for &(name, value) in extra_headers {
             request = request.header(name, value);
         }
@@ -232,8 +242,23 @@ impl Auth {
 
     #[must_use]
     #[inline]
+    /// The Session whose requests these are, if it is known.
+    pub const fn session_id(&self) -> Option<SessionId> {
+        self.session
+    }
+
+    #[must_use]
+    #[inline]
     pub fn with_base_url(mut self, base_url: &str) -> Self {
         base_url.clone_into(&mut self.base_url);
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    /// Sends `session` as this provider's session header, and uses its id as the prompt-cache key.
+    pub const fn with_session(mut self, session: SessionId) -> Self {
+        self.session = Some(session);
         self
     }
 
@@ -248,8 +273,11 @@ impl Auth {
 
 /// The program's one HTTP client. Clones share its connection pool and TLS setup, so
 /// switching models or refreshing the model lists reuses connections instead of rebuilding them.
+/// Every request names the client and its version, which the gateway asks for.
 fn http_client() -> reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        reqwest::Client::builder().user_agent(concat!("thoth/", env!("CARGO_PKG_VERSION"))).build().unwrap_or_default()
+    });
     CLIENT.clone()
 }
 
@@ -409,6 +437,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_provider_that_asks_for_a_session_header_receives_the_session_id() {
+        let server = ok_server().await;
+        let session = SessionId::mint();
+        let mut provider = Provider::builtin("ollama").unwrap();
+        provider.session_header = Some("x-opencode-session".into());
+        post(&auth(provider, Protocol::OpenAi, store()).with_session(session), &server, &[]).await.unwrap();
+
+        let expected = session.to_string();
+        assert_eq!(server.requests()[0].header("x-opencode-session"), Some(expected.as_str()));
+    }
+
+    #[tokio::test]
+    async fn the_gateway_receives_the_session_id_and_other_providers_do_not() {
+        let server = ok_server().await;
+        let store = store();
+        store.write(&Provider::builtin("opencode-go").unwrap(), key("sk-go")).unwrap();
+        store.write(&Provider::builtin("openai").unwrap(), key("sk-openai")).unwrap();
+        let session = SessionId::mint();
+        let expected = session.to_string();
+
+        post(
+            &auth(Provider::builtin("opencode-go").unwrap(), Protocol::OpenAi, Arc::clone(&store))
+                .with_session(session),
+            &server,
+            &[],
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.requests()[0].header("x-opencode-session"), Some(expected.as_str()));
+        assert_eq!(server.requests()[0].header("authorization"), Some("Bearer sk-go"));
+
+        post(&auth(Provider::builtin("openai").unwrap(), Protocol::OpenAi, store).with_session(session), &server, &[])
+            .await
+            .unwrap();
+        assert_eq!(server.requests()[1].header("x-opencode-session"), None);
+    }
+
+    #[tokio::test]
+    async fn a_session_header_is_not_sent_without_a_session() {
+        let server = ok_server().await;
+        let mut provider = Provider::builtin("ollama").unwrap();
+        provider.session_header = Some("x-opencode-session".into());
+        post(&auth(provider, Protocol::OpenAi, store()), &server, &[]).await.unwrap();
+
+        assert_eq!(server.requests()[0].header("x-opencode-session"), None);
+    }
+
+    #[tokio::test]
     async fn anthropic_style_requests_use_x_api_key() {
         let server = ok_server().await;
         let store = store();
@@ -453,6 +529,14 @@ mod tests {
         assert_eq!(request.header("authorization"), Some("Bearer sk-1"));
         assert_eq!(request.header("x-extra"), Some("1"));
         assert_eq!(request.body, "");
+    }
+
+    #[tokio::test]
+    async fn every_request_names_the_client_and_its_version() {
+        let server = ok_server().await;
+        post(&auth(Provider::builtin("ollama").unwrap(), Protocol::OpenAi, store()), &server, &[]).await.unwrap();
+
+        assert_eq!(server.requests()[0].header("user-agent"), Some(concat!("thoth/", env!("CARGO_PKG_VERSION"))));
     }
 
     #[tokio::test]

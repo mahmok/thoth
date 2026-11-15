@@ -14,6 +14,7 @@ use crate::llm::client::fake::Client as FakeClient;
 use crate::llm::provider::Model;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::persona::{Persona, Repository as PersonaRepository, Selection};
+use crate::session::SessionId;
 use crate::test::temp_tree::TempTree;
 use crate::transcript::Observed;
 
@@ -50,7 +51,7 @@ pub fn root(script: Script, limits: Delegation) -> (Agent, FakeClient) {
     );
     let personas = personas();
     let own = personas.get("root").unwrap().clone();
-    (builder.build_root(&own, personas), fake)
+    (builder.build_root(SessionId::mint(), &own, personas), fake)
 }
 
 #[expect(clippy::unnecessary_wraps, reason = "the fake client's script holds Results, and the caller compares Options")]
