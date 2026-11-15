@@ -5,9 +5,7 @@ name: Prepare release
 # makes the release real; see docs/releasing.md.
 
 on:
-  workflow_dispatch:
-  push:
-    branches: [main]
+  workflow_dispatch
 
 permissions:
   contents: write
