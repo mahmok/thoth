@@ -101,9 +101,6 @@ Assets per target: `thoth-<target>.tar.xz` (`.zip` on Windows) beside a `.sha256
 for that archive, plus one `sha256.sum` covering all of them. Each archive holds the
 binary and `LICENSE`.
 
-Binaries are not code-signed: macOS quarantines downloaded binaries
-(`xattr -d com.apple.quarantine ./thoth`) and Windows SmartScreen warns on first run.
-
 ## Failure modes
 
 - **Publish says no tag exists** — nothing was released, because the release PR was not
