@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 
+**Amends:** [0001 — Providers are data, not an enum](0001-providers-are-data.md)
+
 ## Context
 
 A provider is one record with one protocol and one base URL (ADR 0001). That fits a service that
