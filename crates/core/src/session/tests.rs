@@ -576,7 +576,9 @@ fn the_login_list_adds_custom_providers_that_need_a_key() {
     models.save(&gateway).unwrap();
     let h = Harness::with_models(models);
     let ids: Vec<String> = h.harness.login_providers().into_iter().map(|p| p.id).collect();
-    assert_eq!(ids, ["github-copilot", "openai", "anthropic", "google", "gateway"]);
+    let mut expected: Vec<String> = Provider::logins().into_iter().map(|p| p.id).collect();
+    expected.push("gateway".into());
+    assert_eq!(ids, expected);
 }
 
 #[test]

@@ -555,7 +555,8 @@ mod tests {
     fn login_and_logout_list_their_own_providers() {
         let mut f = fixture_with(ScriptedAgent::new(), &[Provider::builtin("openai").unwrap()]);
         let logins = open(&mut f.harness, "login");
-        assert_eq!(labels(&logins), ["GitHub Copilot", "OpenAI", "Anthropic", "Google"]);
+        let expected: Vec<String> = Provider::logins().iter().map(|p| p.display_name().to_owned()).collect();
+        assert_eq!(labels(&logins), expected);
         assert_eq!(logins.items[1].description, "logged in");
         assert_eq!(labels(&open(&mut f.harness, "logout")), ["OpenAI"]);
     }
