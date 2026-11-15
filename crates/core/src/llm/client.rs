@@ -12,6 +12,8 @@ pub mod error;
 #[expect(clippy::expect_used, reason = "test support: an exhausted script should fail the test")]
 /// A scripted client for tests.
 pub mod fake;
+/// The Gemini `generateContent` client.
+pub mod google;
 /// Lowering a conversation for a dialect.
 mod lowering;
 /// Falling back to settings a model accepts.

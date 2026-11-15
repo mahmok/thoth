@@ -46,6 +46,16 @@ impl Reasoning {
         }
     }
 
+    /// The kept value, if this reasoning came from Gemini.
+    #[must_use]
+    #[inline]
+    pub const fn google(&self) -> Option<&Value> {
+        match *self {
+            Self::Google(ref value) => Some(value),
+            Self::Anthropic(_) | Self::Responses(_) => None,
+        }
+    }
+
     /// The kept value, if this reasoning came from the Responses API.
     #[must_use]
     #[inline]

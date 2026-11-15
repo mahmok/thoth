@@ -47,6 +47,7 @@ mod tests {
     use crate::auth::testing::MockServer;
     use crate::llm::client::anthropic::{Client as AnthropicClient, Config as AnthropicConfig};
     use crate::llm::client::chat::Message;
+    use crate::llm::client::google::{Client as GoogleClient, Config as GoogleConfig};
     use crate::llm::client::openai::{OpenAiClient, OpenAiConfig};
     use crate::llm::client::responses::{Client as ResponsesClient, Config as ResponsesConfig};
     use crate::llm::client::{ClientError, CreateCompletionRequest, Delta, Llm as _, StreamedCompletion};
@@ -66,7 +67,7 @@ mod tests {
             Protocol::OpenAi => "/chat/completions",
             Protocol::Anthropic => "/v1/messages",
             Protocol::Responses => "/responses",
-            Protocol::Google => unreachable!("the google protocol has no client"),
+            Protocol::Google => "/v1beta/models/m:streamGenerateContent",
         };
         let server = MockServer::start(vec![(path, vec![(200, reply.to_owned())])]).await;
         let auth = Auth::new(Provider::builtin("ollama").unwrap(), protocol, Arc::new(CredentialStore::in_memory()))
@@ -95,7 +96,11 @@ mod tests {
                     .create_completion_stream(request, &mut on_delta)
                     .await
             },
-            Protocol::Google => unreachable!("the google protocol has no client"),
+            Protocol::Google => {
+                GoogleClient::new(GoogleConfig { auth, model: "m".into() })
+                    .create_completion_stream(request, &mut on_delta)
+                    .await
+            },
         };
         done.map(|done| Streamed { done, reasoning: reasoning_deltas, text: text_deltas })
     }
@@ -127,6 +132,15 @@ mod tests {
                     "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"he\"}\n\n",
                     "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"llo\"}\n\n",
                     "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}}\n\n",
+                ),
+            ),
+            (
+                Protocol::Google,
+                concat!(
+                    "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"he\"}]}}],",
+                    "\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":1,\"totalTokenCount\":4}}\n\n",
+                    "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"llo\"}]},\"finishReason\":\"STOP\"}],",
+                    "\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2,\"totalTokenCount\":5}}\n\n",
                 ),
             ),
         ];
@@ -166,6 +180,13 @@ mod tests {
                     "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"hi\"}\n\n",
                 ),
             ),
+            (
+                Protocol::Google,
+                concat!(
+                    "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"think\",\"thought\":true}]}}]}\n\n",
+                    "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+                ),
+            ),
         ];
 
         for (protocol, reply) in replies {
@@ -193,6 +214,11 @@ mod tests {
                 Protocol::Responses,
                 "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n",
                 "max_output_tokens",
+            ),
+            (
+                Protocol::Google,
+                "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"MAX_TOKENS\"}]}\n\n",
+                "MAX_TOKENS",
             ),
         ];
 
@@ -227,6 +253,13 @@ mod tests {
                     "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"c1\",\"name\":\"read_file\",\"arguments\":\"\"}}\n\n",
                     "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"{\\\"path\\\":\"}\n\n",
                     "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"delta\":\"\\\"a.txt\\\"}\"}\n\n",
+                ),
+            ),
+            (
+                Protocol::Google,
+                concat!(
+                    "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"read_file\",",
+                    "\"id\":\"c1\",\"args\":{\"path\":\"a.txt\"}}}]},\"finishReason\":\"STOP\"}]}\n\n",
                 ),
             ),
         ];

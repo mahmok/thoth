@@ -6,6 +6,7 @@ use crate::llm::provider::{Model, ModelSpec, Protocol};
 use crate::session::SessionId;
 
 use super::anthropic::{Client as AnthropicClient, Config as AnthropicConfig};
+use super::google::{Client as GoogleClient, Config as GoogleConfig};
 use super::openai::{OpenAiClient, OpenAiConfig};
 use super::responses::{Client as ResponsesClient, Config as ResponsesConfig};
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, StreamedCompletion};
@@ -19,6 +20,7 @@ pub enum Client {
     Anthropic(AnthropicClient),
     #[cfg(any(test, feature = "testing"))]
     Fake(FakeClient),
+    Google(GoogleClient),
     OpenAi(OpenAiClient),
     Responses(ResponsesClient),
 }
@@ -38,12 +40,7 @@ impl Client {
             Protocol::Anthropic => {
                 Self::Anthropic(AnthropicClient::new(AnthropicConfig { auth, max_tokens: Model::MAX_TOKENS, model }))
             },
-            Protocol::Google => {
-                return Err(ClientError::BadRequest(format!(
-                    "the {} protocol is not supported yet",
-                    Protocol::Google.label()
-                )));
-            },
+            Protocol::Google => Self::Google(GoogleClient::new(GoogleConfig { auth, model })),
             Protocol::Responses => Self::Responses(ResponsesClient::new(ResponsesConfig { auth, model })),
         })
     }
@@ -62,6 +59,7 @@ impl LlmClient for Client {
         match *self {
             Self::OpenAi(ref client) => client.create_completion_stream(request, on_delta).await,
             Self::Anthropic(ref client) => client.create_completion_stream(request, on_delta).await,
+            Self::Google(ref client) => client.create_completion_stream(request, on_delta).await,
             Self::Responses(ref client) => client.create_completion_stream(request, on_delta).await,
             #[cfg(any(test, feature = "testing"))]
             Self::Fake(ref client) => client.create_completion_stream(request, on_delta).await,
@@ -73,7 +71,6 @@ impl LlmClient for Client {
 mod live_tests {
     use super::*;
     use crate::llm::client::chat::Message;
-    use crate::llm::provider::Provider;
 
     async fn ask(spec: &ModelSpec) -> StreamedCompletion {
         let messages = [Message::system("Answer in one word."), Message::user("Say hi.")];
@@ -84,13 +81,6 @@ mod live_tests {
             .create_completion_stream(request, |_| {})
             .await
             .unwrap()
-    }
-
-    #[test]
-    fn the_google_protocol_is_not_supported_yet() {
-        let spec = ModelSpec::new(Arc::new(Provider::builtin("google").unwrap()), Model::new("gemini-2.5-pro"));
-        let err = Client::for_model(&spec, &Arc::new(CredentialStore::in_memory()), SessionId::mint()).unwrap_err();
-        assert_eq!(err.to_string(), "bad request: the google protocol is not supported yet");
     }
 
     #[tokio::test]
