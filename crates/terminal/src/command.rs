@@ -3,7 +3,7 @@ use thoth_core::builtin::skills::SKILL_PREFIX;
 #[cfg(test)]
 use thoth_core::llm::provider::Provider;
 use thoth_core::llm::thinking::Thinking;
-use thoth_core::session::{LoginState, Refusal};
+use thoth_core::session::{LoginState, Refusal, SessionId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A slash command.
@@ -248,7 +248,7 @@ fn personas(client: &Client) -> Vec<Pick> {
         .collect()
 }
 
-fn session_choices(client: &Client) -> Vec<Choice> {
+fn session_choices(client: &Client) -> Vec<(SessionId, Choice)> {
     client
         .sessions()
         .into_iter()
@@ -259,7 +259,7 @@ fn session_choices(client: &Client) -> Vec<Choice> {
                 (false, true) => "working",
                 (false, false) => "",
             };
-            Choice::new(id.to_string(), format!("session {id}"), note)
+            (id, Choice::new(id.to_string(), format!("session {id}"), note))
         })
         .collect()
 }
@@ -267,8 +267,7 @@ fn session_choices(client: &Client) -> Vec<Choice> {
 fn sessions(client: &Client) -> Vec<Pick> {
     session_choices(client)
         .into_iter()
-        .map(|choice| {
-            let id: u64 = choice.key.parse().unwrap_or_default();
+        .map(|(id, choice)| {
             let apply: Apply = Box::new(move |c| if c.switch(id) { Ok(()) } else { Err(Refused::UnknownChoice) });
             (choice, apply)
         })
@@ -278,8 +277,7 @@ fn sessions(client: &Client) -> Vec<Pick> {
 fn closable(client: &Client) -> Vec<Pick> {
     session_choices(client)
         .into_iter()
-        .map(|choice| {
-            let id: u64 = choice.key.parse().unwrap_or_default();
+        .map(|(id, choice)| {
             let apply: Apply = Box::new(move |c| if c.close(id) { Ok(()) } else { Err(Refused::LastSession) });
             (choice, apply)
         })
@@ -363,6 +361,7 @@ mod tests {
     struct Fixture {
         agent: Rc<ScriptedAgent>,
         harness: Client,
+        session: SessionId,
     }
 
     fn fixture_with(agent: Rc<ScriptedAgent>, logged_in: &[Provider]) -> Fixture {
@@ -370,8 +369,9 @@ mod tests {
         let mut services = scripted.services(fixture());
         services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
         let mut harness = Harness::new(services);
-        harness.start_session_with(1, Box::new(Rc::clone(&scripted.agent)));
-        Fixture { harness: Client::open(harness).unwrap(), agent: scripted.agent }
+        let session = SessionId::mint();
+        harness.start_session_with(session, Box::new(Rc::clone(&scripted.agent)));
+        Fixture { harness: Client::open(harness).unwrap(), agent: scripted.agent, session }
     }
 
     fn fresh() -> Fixture {
@@ -430,7 +430,7 @@ mod tests {
         assert_eq!(labels(&agents), ["Helper"]);
         assert_eq!(choose(&mut f.harness, &agents, "Helper"), Ok(Ran::Done));
         assert_eq!(f.harness.sessions().len(), 2);
-        assert_ne!(f.harness.session_id(), 1);
+        assert_ne!(f.harness.session_id(), f.session);
         assert_eq!(f.harness.view().settings.model, None, "a new agent of its own");
     }
 
@@ -440,22 +440,27 @@ mod tests {
         let agents = open(&mut f.harness, "persona");
         choose(&mut f.harness, &agents, "Helper").unwrap();
         let sessions = open(&mut f.harness, "session");
-        assert_eq!(labels(&sessions), ["session 1", "session 2"]);
-        assert_eq!(choose(&mut f.harness, &sessions, "session 1"), Ok(Ran::Done));
-        assert_eq!(f.harness.session_id(), 1);
-        assert_eq!(run(&mut f.harness, "session", Some("99")), Err(Refused::UnknownChoice));
+        let expected: Vec<String> = f.harness.sessions().iter().map(|(id, _)| format!("session {id}")).collect();
+        assert_eq!(labels(&sessions), expected);
+        let first = format!("session {}", f.session);
+        assert_eq!(choose(&mut f.harness, &sessions, &first), Ok(Ran::Done));
+        assert_eq!(f.harness.session_id(), f.session);
+        let unknown = SessionId::mint().to_string();
+        assert_eq!(run(&mut f.harness, "session", Some(&unknown)), Err(Refused::UnknownChoice));
     }
 
     #[test]
     fn closing_a_session_moves_to_another_and_the_last_one_stays() {
         let mut f = fresh();
+        let first = f.session;
         let agents = open(&mut f.harness, "persona");
         choose(&mut f.harness, &agents, "Helper").unwrap();
-        assert_eq!(f.harness.session_id(), 2);
-        assert_eq!(run(&mut f.harness, "close-session", Some("2")), Ok(Ran::Done));
-        assert_eq!(f.harness.session_id(), 1);
+        let second = f.harness.session_id();
+        assert_ne!(second, first);
+        assert_eq!(run(&mut f.harness, "close-session", Some(&second.to_string())), Ok(Ran::Done));
+        assert_eq!(f.harness.session_id(), first);
         assert_eq!(f.harness.sessions().len(), 1);
-        assert_eq!(run(&mut f.harness, "close-session", Some("1")), Err(Refused::LastSession));
+        assert_eq!(run(&mut f.harness, "close-session", Some(&first.to_string())), Err(Refused::LastSession));
     }
 
     #[test]
