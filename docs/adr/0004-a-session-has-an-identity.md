@@ -30,8 +30,10 @@ by a generator the harness owns.
 - The id survives clearing the conversation and switching models: it identifies the session, not
   its contents or its model.
 - The agent carries the id and hands it to each client it builds, which passes it to `Auth`. `Auth`
-  sends it as the prompt-cache key where a protocol has one, and as a header when the provider names
-  that header (`sessionHeader`, today only `x-opencode-session` on `opencode-go`).
+  adds it as a header when the provider names one (`sessionHeader`, today only
+  `x-opencode-session` on `opencode-go`); a client whose dialect has a prompt-cache key puts the id
+  there itself. `Auth` authorises and transports a request; it does not know what a body calls the
+  id.
 - Each sub-agent mints its own id. A sub-agent is a conversation of its own, even though it runs
   inside the same session.
 
@@ -45,8 +47,9 @@ to the session that started it is likewise deferred until tracing exists, and wi
 The terminal compares opaque ids instead of literals, and tests that asserted "session 2" assert
 the id they were handed.
 
-The prompt-cache key stops being a client concern: a client no longer generates one, and a model
-switch no longer resets it. `new_cache_key` and the two client fields that held it are deleted.
+The prompt-cache key stops being a value a client mints: it is the session id, so a model switch no
+longer resets it. `new_cache_key` and the two client fields that held it are deleted, and each
+client that has the field puts the id in its own body.
 
 A provider that needs a different header gets a field, not an `if` on its id, which keeps ADR 0001's
 promise that adding a provider is data.

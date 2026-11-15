@@ -249,13 +249,6 @@ impl Auth {
 
     #[must_use]
     #[inline]
-    /// The Session's id as a prompt-cache key, if it is known.
-    pub fn prompt_cache_key(&self) -> Option<String> {
-        self.session.map(|session| session.to_string())
-    }
-
-    #[must_use]
-    #[inline]
     pub fn with_base_url(mut self, base_url: &str) -> Self {
         base_url.clone_into(&mut self.base_url);
         self
