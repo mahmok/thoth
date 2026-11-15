@@ -11,7 +11,7 @@ impl<W: Write> Modes<W> {
     pub fn enter(out: W) -> io::Result<Self> {
         // Build the guard first, so a failure below still runs `drop`.
         let mut modes = Self { out };
-        let _ = execute!(modes.out, EnableMouseCapture, EnableBracketedPaste);
+        execute!(modes.out, EnableMouseCapture, EnableBracketedPaste)?;
         Ok(modes)
     }
 }
