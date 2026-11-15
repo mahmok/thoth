@@ -1,6 +1,7 @@
 use alloc::sync::Arc;
 
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 use crate::auth::Auth;
 use crate::auth::store::Credentials as CredentialStore;
@@ -77,6 +78,39 @@ struct CopilotLimits {
 }
 
 #[derive(Deserialize)]
+/// A model of the gateway, whose list says which dialect each model speaks.
+struct OpenCodeGoModel {
+    #[serde(default)]
+    api: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    capabilities: OpenCodeGoCapabilities,
+    id: String,
+    #[serde(default)]
+    limit: OpenCodeGoLimit,
+    name: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+/// What a gateway model supports.
+struct OpenCodeGoCapabilities {
+    #[serde(default)]
+    tools: OpenCodeGoTools,
+}
+
+#[derive(Deserialize, Default)]
+/// Whether a gateway model may call tools.
+struct OpenCodeGoTools {
+    #[serde(default)]
+    supported: bool,
+}
+
+#[derive(Deserialize, Default)]
+/// The tokens a gateway model's context window holds.
+struct OpenCodeGoLimit {
+    context: Option<u32>,
+}
+
+#[derive(Deserialize)]
 /// A model list reply of Google.
 struct GoogleList {
     #[serde(default)]
@@ -125,6 +159,12 @@ impl ModelFetcher {
         }
     }
 
+    /// Authorises a request against the provider's stored root, before any dialect's prefix.
+    fn root_auth(&self, provider: &Provider) -> Auth {
+        let base_url = self.base_url.as_deref().unwrap_or(&provider.base_url);
+        self.auth(provider).with_base_url(base_url)
+    }
+
     /// Fetches the Copilot models.
     async fn copilot(&self, provider: &Provider) -> Result<Vec<Model>, ClientError> {
         let headers = [("Accept", "application/json"), ("X-GitHub-Api-Version", COPILOT_API_VERSION)];
@@ -154,6 +194,35 @@ impl ModelFetcher {
             .collect())
     }
 
+    /// Fetches the gateway's models, each in the dialect its `api` key names.
+    #[expect(clippy::result_large_err, reason = "the fetch methods share the client's error type")]
+    async fn opencode_go(&self, provider: &Provider) -> Result<Vec<Model>, ClientError> {
+        let response = self.root_auth(provider).get("/v1/models", &[]).await?;
+        let list: List<OpenCodeGoModel> = response.json().await?;
+        Ok(list
+            .data
+            .into_iter()
+            .filter_map(|model| {
+                let protocol = match model.api.keys().next()?.as_str() {
+                    "chat-completions" => Protocol::OpenAi,
+                    "responses" => Protocol::Responses,
+                    "messages" => Protocol::Anthropic,
+                    "generate-content" => Protocol::Google,
+                    _ => return None,
+                };
+                if !model.capabilities.tools.supported {
+                    return None;
+                }
+                Some(
+                    Model::new(model.id)
+                        .with_name(model.name.unwrap_or_default())
+                        .with_protocol(Some(protocol))
+                        .with_context_limit(model.limit.context),
+                )
+            })
+            .collect())
+    }
+
     #[inline]
     /// Fetches the models a provider offers, or says there are no credentials.
     ///
@@ -166,6 +235,8 @@ impl ModelFetcher {
         }
         let mut models = if provider.login == LoginMethod::GithubDevice {
             self.copilot(provider).await?
+        } else if provider.id == "opencode-go" {
+            self.opencode_go(provider).await?
         } else {
             match provider.protocol {
                 Protocol::Anthropic => self.anthropic(provider).await?,
@@ -356,6 +427,38 @@ mod tests {
         let request = &server.requests()[0];
         assert_eq!(request.path, "/v1beta/models");
         assert_eq!(request.header("x-goog-api-key"), Some("sk-test"));
+    }
+
+    /// The body recorded from `GET https://opencode.ai/inference/go/v1/models`, with one entry
+    /// added for each filter the fetch applies: an unknown `api` key and a model without tools.
+    #[tokio::test]
+    async fn gateway_models_carry_their_dialect_name_and_context_limit() {
+        let body = include_str!("fixtures/opencode-go-models.json");
+        let server = serve("/v1/models", body).await;
+        let fetcher = ModelFetcher::new(credentials(Some((Provider::builtin("opencode-go").unwrap(), key()))))
+            .with_base_url(&server.url);
+        let Fetched::Models(models) = fetcher.fetch(&Provider::builtin("opencode-go").unwrap()).await.unwrap() else {
+            panic!("expected models")
+        };
+
+        let summary: Vec<(&str, &str, Protocol, Option<u32>)> = models
+            .iter()
+            .map(|model| (model.id.as_str(), model.display_name(), model.protocol.unwrap(), model.context_limit))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("claude-haiku-5-5", "Claude Haiku 5.5", Protocol::Anthropic, Some(1_000_000)),
+                ("gemini-4-argon", "Gemini 4 Argon", Protocol::Google, Some(1_048_576)),
+                ("glm-5.3", "GLM-5.3", Protocol::OpenAi, Some(1_000_000)),
+                ("grok-4.7", "Grok 4.7", Protocol::Responses, Some(500_000)),
+            ],
+            "one model per dialect, the unknown key and the model without tools dropped"
+        );
+
+        let request = &server.requests()[0];
+        assert_eq!(request.path, "/v1/models", "the list is at the root, not the OpenAI prefix");
+        assert_eq!(request.header("authorization"), Some("Bearer sk-test"));
     }
 
     #[tokio::test]

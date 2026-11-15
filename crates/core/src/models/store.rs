@@ -238,6 +238,23 @@ mod tests {
     }
 
     #[test]
+    fn a_providers_session_header_survives_the_models_store() {
+        let path = temp_path("session-header");
+        let (store, _) = Json::open(&path);
+        let gateway = (*store.provider("opencode-go").unwrap()).clone();
+        assert_eq!(gateway.session_header.as_deref(), Some("x-opencode-session"));
+        store.save(&gateway).unwrap();
+
+        let written: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["opencode-go"]["sessionHeader"], "x-opencode-session");
+
+        let reopened = Json::open(&path).0;
+        let restored = reopened.provider("opencode-go").unwrap();
+        assert_eq!(restored.session_header.as_deref(), Some("x-opencode-session"));
+        cleanup(&path);
+    }
+
+    #[test]
     fn a_corrupt_file_leaves_the_builtins_with_a_warning_and_is_kept_until_a_write() {
         let path = temp_path("corrupt");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
