@@ -57,7 +57,18 @@ impl Negotiation {
 fn is_setting_refusal(error: &ClientError) -> bool {
     error.bad_request().is_some_and(|message| {
         let lowered = message.to_lowercase();
-        message.is_empty() || SETTING_WORDS.iter().any(|word| lowered.contains(word))
+        message.is_empty() || is_google_refusal(message) || SETTING_WORDS.iter().any(|word| lowered.contains(word))
+    })
+}
+
+/// Gemini names the kind of request error in `error.status`. The message for a bad thinking
+/// level is unpublished, so the status is the only dependable signal.
+fn is_google_refusal(message: &str) -> bool {
+    const STATUSES: [&str; 2] = ["FAILED_PRECONDITION", "INVALID_ARGUMENT"];
+    serde_json::from_str::<serde_json::Value>(message).is_ok_and(|body| {
+        body.pointer("/error/status")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|status| STATUSES.contains(&status))
     })
 }
 
@@ -115,6 +126,22 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn a_google_status_is_a_refusal_even_without_setting_words() {
+        let calls = AtomicUsize::new(0);
+        let refusal =
+            r#"{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}"#;
+        let result: Result<usize, ClientError> = Negotiation::default()
+            .send(Thinking::Max, &[0usize, 1usize], |&setting| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                async move { if setting == 0 { Err(ClientError::BadRequest(refusal.into())) } else { Ok(setting) } }
+            })
+            .await;
+
+        assert_eq!(result.unwrap(), 1);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]
