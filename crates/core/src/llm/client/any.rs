@@ -84,6 +84,33 @@ mod live_tests {
     }
 
     #[tokio::test]
+    #[ignore = "needs a real OpenCode Go API key in OPENCODE_API_KEY"]
+    async fn each_gateway_dialect_answers_and_reports_usage() {
+        let Some(key) = std::env::var("OPENCODE_API_KEY").ok().filter(|key| !key.is_empty()) else {
+            return;
+        };
+        let store = Arc::new(CredentialStore::in_memory().with_env("OPENCODE_API_KEY", &key));
+        let provider = Arc::new(crate::llm::provider::Provider::builtin("opencode-go").unwrap());
+        let messages = [Message::system("Answer in one word."), Message::user("Say hi.")];
+
+        for (id, protocol) in [
+            ("glm-5.3", Protocol::OpenAi),
+            ("grok-4.7", Protocol::Responses),
+            ("claude-haiku-5-5", Protocol::Anthropic),
+            ("gemini-4-argon", Protocol::Google),
+        ] {
+            let spec = ModelSpec::new(Arc::clone(&provider), Model::new(id).with_protocol(Some(protocol)));
+            let done = Client::for_model(&spec, &store, SessionId::mint())
+                .unwrap()
+                .create_completion_stream(CreateCompletionRequest { messages: &messages, ..Default::default() }, |_| {})
+                .await
+                .unwrap();
+            assert!(!done.text.is_empty(), "{}", spec.label());
+            assert!(done.usage.is_some(), "{}", spec.label());
+        }
+    }
+
+    #[tokio::test]
     #[ignore = "needs a local Ollama server"]
     async fn both_providers_answer_from_a_local_ollama() {
         for protocol in [Protocol::OpenAi, Protocol::Anthropic] {
