@@ -1,11 +1,13 @@
 use thoth_core::builtin::files::Suggestions;
-use thoth_core::harness::{Event, Harness};
+use thoth_core::harness::{Event, Harness, UseCaseError};
 use thoth_core::llm::provider::{ModelSpec, Provider};
+use thoth_core::llm::thinking::Thinking;
 use thoth_core::persona::Info as PersonaInfo;
 use thoth_core::session::LoginState;
 use thoth_core::session::Session;
 use thoth_core::session::SessionId;
 use thoth_core::session::view::{Login as LoginView, View};
+use thoth_core::transcript::Speaker;
 
 /// A Harness and the one session this terminal is showing. Which session is viewed is the
 /// terminal's business; the Harness only knows its sessions by id.
@@ -25,6 +27,15 @@ impl Client {
         self.harness.cancel_session(self.session);
     }
 
+    /// Clears the viewed session's conversation.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the session is busy, or when there is no such session.
+    pub fn clear(&mut self) -> Result<(), UseCaseError> {
+        self.harness.clear_session(self.session)
+    }
+
     /// Closes `session`, moving the view to the earliest one left if it was shown. The last
     /// session is never closed.
     pub fn close(&mut self, session: SessionId) -> bool {
@@ -39,6 +50,15 @@ impl Client {
             self.session = ids.into_iter().find(|id| *id != session).unwrap_or(self.session);
         }
         true
+    }
+
+    /// Summarises the viewed session's older turns now.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the session is busy, or when there is no such session.
+    pub fn compact(&mut self, focus: Option<String>) -> Result<(), UseCaseError> {
+        self.harness.compact_session(self.session, focus)
     }
 
     /// Starts a Session playing `persona`, without moving the view to it.
@@ -89,6 +109,15 @@ impl Client {
         Ok(Self { harness, session })
     }
 
+    /// Writes a notice into the viewed session's transcript.
+    ///
+    /// # Errors
+    ///
+    /// Refused when there is no such session, rather than dropping the notice.
+    pub fn notice(&mut self, speaker: Speaker, text: String) -> Result<(), UseCaseError> {
+        self.harness.notice(self.session, speaker, text)
+    }
+
     /// What the harness has to report: logins, notices, session events and closes.
     pub fn poll(&mut self) -> Vec<Event> {
         self.harness.poll()
@@ -118,9 +147,22 @@ impl Client {
         self.session
     }
 
-    #[expect(clippy::expect_used, reason = "`close` keeps the viewed session in the harness")]
-    pub fn session_mut(&mut self) -> &mut Session {
-        self.harness.session_mut(self.session).expect("the viewed session exists")
+    /// Switches the viewed session's model.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the session is busy, or when there is no such session.
+    pub fn set_model(&mut self, model: ModelSpec) -> Result<(), UseCaseError> {
+        self.harness.set_model(self.session, model)
+    }
+
+    /// Sets how hard the viewed session's model thinks.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the session is busy, or when there is no such session.
+    pub fn set_thinking(&mut self, level: Thinking) -> Result<(), UseCaseError> {
+        self.harness.set_thinking(self.session, level)
     }
 
     /// Every session's id, and whether it is working.
@@ -155,9 +197,11 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use alloc::rc::Rc;
+    use alloc::sync::Arc;
 
     use super::*;
     use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
+    use thoth_core::llm::provider::Model;
     use thoth_core::models::testing::fixture;
     use thoth_core::persona::Persona;
     use thoth_core::test::scripted::Scripted;
@@ -226,5 +270,32 @@ mod tests {
 
         assert_eq!(client.session_id(), first);
         assert!(views_a_session(&client));
+    }
+
+    #[test]
+    fn a_use_case_on_a_busy_session_is_refused_as_busy() {
+        let mut client = client();
+        assert!(client.submit("hello".into(), "hello".into()));
+        let other = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4o"));
+
+        assert_eq!(client.clear(), Err(UseCaseError::Busy));
+        assert_eq!(client.compact(None), Err(UseCaseError::Busy));
+        assert_eq!(client.set_model(other), Err(UseCaseError::Busy));
+        assert_eq!(client.set_thinking(Thinking::Low), Err(UseCaseError::Busy));
+    }
+
+    #[test]
+    fn a_use_case_for_a_session_that_is_gone_is_refused_distinctly() {
+        let mut client = client();
+        let other = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4o"));
+        // A session can only go missing from under the façade if its id is stale; keep the view
+        // pointing at nothing to prove the refusal is not dropped.
+        client.session = SessionId::mint();
+
+        assert_eq!(client.clear(), Err(UseCaseError::MissingSession));
+        assert_eq!(client.compact(None), Err(UseCaseError::MissingSession));
+        assert_eq!(client.set_model(other), Err(UseCaseError::MissingSession));
+        assert_eq!(client.set_thinking(Thinking::Low), Err(UseCaseError::MissingSession));
+        assert_eq!(client.notice(Speaker::Error, "gone".into()), Err(UseCaseError::MissingSession));
     }
 }

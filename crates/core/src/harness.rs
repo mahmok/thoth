@@ -4,24 +4,41 @@ use crate::agent::controller::TokioAgent as TokioAgentController;
 use crate::agent_builder::AgentBuilder;
 use crate::auth::session::Login as LoginSession;
 use crate::auth::store::{Credentials as CredentialStore, Source};
-use crate::builtin::expand_skills;
 use crate::builtin::files::{FileReferences, Suggestions};
 use crate::llm::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
+use crate::llm::thinking::Thinking;
 use crate::models::choices;
 use crate::models::refresh::Session as RefreshSession;
 use crate::models::store::Models as ModelsStore;
 use crate::notice::Notice;
 use crate::persona::{Info as PersonaInfo, Repository as PersonaRepository};
 use crate::services::Services;
-use crate::session::LoginState;
 use crate::session::Session;
 use crate::session::SessionId;
 use crate::session::event::Event as SessionEvent;
 use crate::session::view::Login as LoginView;
+use crate::session::{LoginState, Refusal};
 use crate::transcript::Speaker;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::mem;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Why a use case refused.
+pub enum UseCaseError {
+    /// The Session is working, so the use case may not run now.
+    Busy,
+    /// There is no Session under that id.
+    MissingSession,
+}
+
+impl From<Refusal> for UseCaseError {
+    fn from(refusal: Refusal) -> Self {
+        match refusal {
+            Refusal::Busy => Self::Busy,
+        }
+    }
+}
 
 #[derive(Debug)]
 /// What a Harness reports to clients.
@@ -54,7 +71,7 @@ impl Harness {
     pub fn cancel_login(&mut self) {
         let notices = self.logins.cancel();
         self.show(Speaker::Login, notices);
-        self.sync_view();
+        self.sync_login();
     }
 
     #[inline]
@@ -63,7 +80,81 @@ impl Harness {
         if let Some(session) = self.sessions.get_mut(&session_id) {
             session.cancel();
         }
-        self.sync_view();
+        self.sync_login();
+    }
+
+    #[inline]
+    /// Clears the Session's Conversation.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the Session is busy, or when there is no such Session.
+    pub fn clear_session(&mut self, session_id: SessionId) -> Result<(), UseCaseError> {
+        let Some(session) = self.sessions.get_mut(&session_id) else {
+            return Err(UseCaseError::MissingSession);
+        };
+        let cleared = session.clear().map_err(UseCaseError::from);
+        self.sync_login();
+        cleared
+    }
+
+    #[inline]
+    /// Compacts the Session's Conversation now, with an optional `focus`.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the Session is busy, or when there is no such Session.
+    pub fn compact_session(&mut self, session_id: SessionId, focus: Option<String>) -> Result<(), UseCaseError> {
+        let Some(session) = self.sessions.get_mut(&session_id) else {
+            return Err(UseCaseError::MissingSession);
+        };
+        let compacted = session.compact(focus).map_err(UseCaseError::from);
+        self.sync_login();
+        compacted
+    }
+
+    #[inline]
+    /// Switches the Session's model.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the Session is busy, or when there is no such Session.
+    pub fn set_model(&mut self, session_id: SessionId, model: ModelSpec) -> Result<(), UseCaseError> {
+        let Some(session) = self.sessions.get_mut(&session_id) else {
+            return Err(UseCaseError::MissingSession);
+        };
+        let switched = session.set_model(model).map_err(UseCaseError::from);
+        self.sync_login();
+        switched
+    }
+
+    #[inline]
+    /// Sets how hard the Session's model thinks.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the Session is busy, or when there is no such Session.
+    pub fn set_thinking(&mut self, session_id: SessionId, level: Thinking) -> Result<(), UseCaseError> {
+        let Some(session) = self.sessions.get_mut(&session_id) else {
+            return Err(UseCaseError::MissingSession);
+        };
+        let set = session.set_thinking(level).map_err(UseCaseError::from);
+        self.sync_login();
+        set
+    }
+
+    #[inline]
+    /// Writes a notice into the Session's transcript.
+    ///
+    /// # Errors
+    ///
+    /// Refused when there is no such Session, rather than dropping the notice.
+    pub fn notice(&mut self, session_id: SessionId, speaker: Speaker, text: String) -> Result<(), UseCaseError> {
+        let Some(session) = self.sessions.get_mut(&session_id) else {
+            return Err(UseCaseError::MissingSession);
+        };
+        session.notice(speaker, text);
+        Ok(())
     }
 
     #[inline]
@@ -114,7 +205,7 @@ impl Harness {
     pub fn login(&mut self, provider: &Provider) {
         let notices = self.logins.start(provider);
         self.show(Speaker::Login, notices);
-        self.sync_view();
+        self.sync_login();
     }
 
     #[must_use]
@@ -139,7 +230,7 @@ impl Harness {
     pub fn logout(&mut self, provider: &Provider) {
         let notices = self.logins.logout(provider);
         self.show(Speaker::Login, notices);
-        self.sync_view();
+        self.sync_login();
     }
 
     #[must_use]
@@ -185,7 +276,7 @@ impl Harness {
             };
             self.out.extend(events.into_iter().map(|event| Event::Session { id, event }));
         }
-        self.sync_view();
+        self.sync_login();
         mem::take(&mut self.out)
     }
 
@@ -193,7 +284,7 @@ impl Harness {
     pub fn refresh_models(&mut self) {
         let providers = self.models.providers().into_iter().map(|provider| provider.as_ref().clone()).collect();
         self.start_refresh(providers);
-        self.sync_view();
+        self.sync_login();
     }
 
     #[must_use]
@@ -238,11 +329,6 @@ impl Harness {
         self.sessions.get(&session_id)
     }
 
-    #[inline]
-    pub fn session_mut(&mut self, session_id: SessionId) -> Option<&mut Session> {
-        self.sessions.get_mut(&session_id)
-    }
-
     #[must_use]
     #[inline]
     /// The ids of the Sessions, with whether each is busy.
@@ -285,7 +371,7 @@ impl Harness {
     /// Sends a prompt to a Session, or the secret being asked for. Returns whether it was taken.
     pub fn submit(&mut self, session_id: SessionId, shown: String, full: String) -> bool {
         let taken = self.submit_prompt(session_id, shown, full);
-        self.sync_view();
+        self.sync_login();
         taken
     }
 
@@ -305,7 +391,7 @@ impl Harness {
             self.say(Speaker::Error, format!("No session {session_id} to submit the prompt to."));
             return false;
         };
-        let prompt = format!("{}{}", expand_skills(&full, session.agent_controller()), files);
+        let prompt = format!("{}{}", session.expand_skills(&full), files);
         session.submit(shown, prompt).is_ok()
     }
 
@@ -315,7 +401,7 @@ impl Harness {
         self.files.suggestions()
     }
 
-    fn sync_view(&mut self) {
+    fn sync_login(&mut self) {
         let login = LoginView {
             active: self.logins.is_active(),
             awaiting_secret: self.logins.awaiting_secret(),
@@ -324,9 +410,6 @@ impl Harness {
         if login != self.login {
             self.login = login.clone();
             self.out.push(Event::Login(login));
-        }
-        for session in self.sessions.values_mut() {
-            session.sync_view();
         }
     }
 

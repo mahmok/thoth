@@ -10,7 +10,7 @@ use crate::auth::flow::LoginEvent;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::builtin::files::FileReferences;
-use crate::harness::{Event as HarnessEvent, Harness as CoreHarness};
+use crate::harness::{Event as HarnessEvent, Harness as CoreHarness, UseCaseError};
 use crate::llm::client::chat::Usage;
 use crate::llm::provider::Provider;
 use crate::llm::provider::{Model, ModelSpec, Protocol};
@@ -75,16 +75,22 @@ impl Harness {
     }
 
     fn poll(&mut self) {
-        for event in self.harness.poll() {
-            match event {
-                HarnessEvent::Session { id, event: inner } if id == self.viewing => self.events.push(inner),
-                HarnessEvent::Session { .. } => {},
-                HarnessEvent::Notice { speaker, text } => self.session().say(speaker, text),
-                other @ (HarnessEvent::Login(_) | HarnessEvent::SessionClosed(_)) => self.harness_events.push(other),
+        // Two passes: the first takes what happened, the second takes the events of any notices
+        // the first pass wrote into the viewed session, the way the terminal polls again.
+        for _pass in 0..2 {
+            for event in self.harness.poll() {
+                match event {
+                    HarnessEvent::Session { id, event: inner } if id == self.viewing => self.events.push(inner),
+                    HarnessEvent::Session { .. } => {},
+                    HarnessEvent::Notice { speaker, text } => {
+                        self.harness.notice(self.viewing, speaker, text).unwrap();
+                    },
+                    other @ (HarnessEvent::Login(_) | HarnessEvent::SessionClosed(_)) => {
+                        self.harness_events.push(other);
+                    },
+                }
             }
         }
-        let events = self.session().poll();
-        self.events.extend(events);
     }
 
     fn reply(&mut self, reply: Reply) {
@@ -113,8 +119,8 @@ impl Harness {
         self.harness.submit(self.viewing, text.into(), text.into())
     }
 
-    fn session(&mut self) -> &mut Session {
-        self.harness.session_mut(self.viewing).unwrap()
+    fn session(&self) -> &Session {
+        self.harness.session(self.viewing).unwrap()
     }
 
     fn is_busy(&self) -> bool {
@@ -167,6 +173,20 @@ fn files_are_suggested_for_the_at_sign_and_referenced_files_are_attached_on_send
     assert!(sent[0].starts_with("see @Cargo.toml "), "{sent:?}");
     assert!(sent[0].contains("<file path=\"Cargo.toml\">"), "{sent:?}");
     assert_eq!(h.said_by(Speaker::You), ["see @Cargo.toml "]);
+}
+
+#[test]
+fn a_notice_is_written_into_the_addressed_session() {
+    let mut h = Harness::new();
+    assert_eq!(h.harness.notice(h.viewing, Speaker::Login, "hello".into()), Ok(()));
+    assert_eq!(h.said_by(Speaker::Login), ["hello"]);
+}
+
+#[test]
+fn a_notice_for_a_session_that_does_not_exist_is_refused_not_dropped() {
+    let mut h = Harness::new();
+    assert_eq!(h.harness.notice(SessionId::mint(), Speaker::Error, "lost".into()), Err(UseCaseError::MissingSession));
+    assert_empty(h.said_by(Speaker::Error));
 }
 
 #[test]
@@ -544,7 +564,7 @@ fn setting_a_model_applies_it_and_updates_the_settings() {
     let mut h = Harness::new();
     let llama = ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("llama3.2:3b"));
     assert!(h.harness.models().iter().any(|entry| entry.0 == llama));
-    assert_eq!(h.session().set_model(llama.clone()), Ok(()));
+    assert_eq!(h.harness.set_model(h.viewing, llama.clone()), Ok(()));
     assert_eq!(h.agent.model(), Some(llama));
     assert_eq!(h.view().settings.model.as_ref().map(ModelSpec::label).as_deref(), Some("llama3.2:3b (ollama/openai)"));
     assert!(h.agent.prompts().is_empty(), "choosing never sends a prompt");
@@ -553,9 +573,17 @@ fn setting_a_model_applies_it_and_updates_the_settings() {
 #[test]
 fn setting_a_thinking_level_applies_it_and_updates_the_settings() {
     let mut h = Harness::new();
-    h.session().set_thinking(Thinking::High);
+    assert_eq!(h.harness.set_thinking(h.viewing, Thinking::High), Ok(()));
     assert_eq!(h.agent.settings().thinking, Thinking::High);
     assert_eq!(h.view().settings.thinking, Thinking::High);
+}
+
+#[test]
+fn setting_a_thinking_level_while_the_turn_runs_is_refused_as_busy() {
+    let mut h = Harness::new();
+    h.send("hello");
+    assert_eq!(h.harness.set_thinking(h.viewing, Thinking::High), Err(UseCaseError::Busy));
+    assert_eq!(h.agent.settings().thinking, Thinking::default());
 }
 
 #[test]
@@ -563,17 +591,25 @@ fn clear_empties_the_transcript_and_the_conversation() {
     let mut h = Harness::new();
     h.send("hello");
     h.done();
-    assert_eq!(h.session().clear(), Ok(()));
+    assert_eq!(h.harness.clear_session(h.viewing), Ok(()));
     assert_empty(h.said());
     assert_eq!(h.agent.cleared(), 1);
 }
 
 #[test]
+fn clearing_while_the_turn_runs_is_refused_as_busy() {
+    let mut h = Harness::new();
+    h.send("hello");
+    assert_eq!(h.harness.clear_session(h.viewing), Err(UseCaseError::Busy));
+    assert_eq!(h.agent.cleared(), 0);
+}
+
+#[test]
 fn compacting_keeps_the_session_busy_until_the_agent_is_done_and_waits_for_an_idle_one() {
     let mut h = Harness::new();
-    assert_eq!(h.session().compact(Some("the parser".into())), Ok(()));
+    assert_eq!(h.harness.compact_session(h.viewing, Some("the parser".into())), Ok(()));
     assert!(h.view().busy);
-    assert_eq!(h.session().compact(None), Err(Refusal::Busy));
+    assert_eq!(h.harness.compact_session(h.viewing, None), Err(UseCaseError::Busy));
     assert_eq!(h.agent.compactions(), [Some("the parser".to_owned())]);
     h.done();
     assert!(!h.view().busy);
@@ -583,10 +619,10 @@ fn compacting_keeps_the_session_busy_until_the_agent_is_done_and_waits_for_an_id
 fn model_and_clear_are_refused_while_a_turn_runs() {
     let mut h = Harness::new();
     h.send("hello");
-    assert_eq!(h.session().clear(), Err(Refusal::Busy));
+    assert_eq!(h.harness.clear_session(h.viewing), Err(UseCaseError::Busy));
     assert_eq!(h.agent.cleared(), 0);
     let other = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4o"));
-    assert_eq!(h.session().set_model(other), Err(Refusal::Busy));
+    assert_eq!(h.harness.set_model(h.viewing, other), Err(UseCaseError::Busy));
     assert_eq!(h.agent.model(), Some(bonsai()));
 }
 
@@ -595,7 +631,7 @@ fn the_models_are_whatever_the_store_holds_across_providers() {
     let mut h = Harness::new();
     let gpt = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4o"));
     assert!(h.harness.models().iter().any(|entry| entry.0 == gpt));
-    h.session().set_model(gpt.clone()).unwrap();
+    h.harness.set_model(h.viewing, gpt.clone()).unwrap();
     assert!(h.worker.started().is_empty(), "choosing a model never starts a login");
     assert_eq!(h.agent.model(), Some(gpt));
 }
@@ -694,7 +730,7 @@ fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
     h.harness.cancel_session(first);
     assert_eq!(h.agent.interrupted(), 1);
     assert_eq!(other.interrupted(), 0);
-    assert!(h.harness.session(first).is_some() && h.harness.session_mut(second).is_some());
+    assert!(h.harness.session(first).is_some() && h.harness.session(second).is_some());
     assert!(h.harness.session(SessionId::mint()).is_none());
 }
 
@@ -739,9 +775,9 @@ fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
     assert_ne!(first, second);
 
     // Each session has an agent of its own: changing one leaves the other alone.
-    harness.session_mut(first).unwrap().set_thinking(Thinking::High);
+    harness.set_thinking(first, Thinking::High).unwrap();
     assert_eq!(harness.session(first).unwrap().view().settings.thinking, Thinking::High);
-    harness.session_mut(second).unwrap().poll();
+    harness.poll();
     assert_ne!(harness.session(second).unwrap().view().settings.thinking, Thinking::High);
 
     assert_eq!(harness.create_session("missing"), None);

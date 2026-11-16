@@ -48,12 +48,6 @@ pub struct Session {
 }
 
 impl Session {
-    #[must_use]
-    #[inline]
-    pub fn agent_controller(&self) -> &dyn AgentController {
-        self.agent.as_ref()
-    }
-
     fn announce_skills(&mut self) {
         let names: Vec<String> = self.agent.skills().into_iter().map(|s| s.name).collect();
         if !names.is_empty() {
@@ -108,9 +102,16 @@ impl Session {
     }
 
     #[inline]
-    pub fn emit(&mut self, event: SessionEvent) {
+    fn emit(&mut self, event: SessionEvent) {
         self.view.apply(&event);
         self.out.push(event);
+    }
+
+    #[must_use]
+    #[inline]
+    /// Replaces each `/skill:name` in `prompt` with that skill's block.
+    pub fn expand_skills(&self, prompt: &str) -> String {
+        crate::builtin::skills::expand_skills(prompt, self.agent.as_ref())
     }
 
     const fn idle(&self) -> Result<(), Refusal> {
@@ -170,7 +171,13 @@ impl Session {
     }
 
     #[inline]
-    pub fn say(&mut self, speaker: Speaker, text: String) {
+    /// Appends a Notice to the transcript.
+    pub fn notice(&mut self, speaker: Speaker, text: String) {
+        self.say(speaker, text);
+    }
+
+    #[inline]
+    fn say(&mut self, speaker: Speaker, text: String) {
         let change = self.view.transcript.said(speaker, text);
         self.emit(SessionEvent::Transcript(change));
     }
@@ -188,10 +195,17 @@ impl Session {
         Ok(())
     }
 
+    /// Sets how hard the model thinks. Refused while the Agent is busy.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the Agent is busy.
     #[inline]
-    pub fn set_thinking(&mut self, level: Thinking) {
+    pub fn set_thinking(&mut self, level: Thinking) -> Result<(), Refusal> {
+        self.idle()?;
         self.agent.apply(AgentChange::SetThinking(level));
         self.sync_view();
+        Ok(())
     }
 
     fn settle(&mut self) {
@@ -203,11 +217,6 @@ impl Session {
     #[inline]
     pub fn skills(&self) -> Vec<SkillSummary> {
         self.agent.skills()
-    }
-
-    #[inline]
-    pub fn start_turn(&self, expanded_prompt: String) {
-        self.agent.start(expanded_prompt);
     }
 
     /// Takes a prompt if the Agent is idle: shows it, becomes busy and starts the turn.
@@ -228,7 +237,7 @@ impl Session {
 
     #[inline]
     /// Emits events for settings, statistics and busy state that changed.
-    pub fn sync_view(&mut self) {
+    fn sync_view(&mut self) {
         if self.busy != self.view.busy {
             self.emit(SessionEvent::Busy(self.busy));
         }
