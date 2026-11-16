@@ -113,8 +113,8 @@ mod tests {
     #[tokio::test]
     async fn a_timeout_still_returns_what_the_command_printed() {
         let tree = TempTree::new("powershell-partial");
-        let result =
-            run(tool(&tree), json!({ "command": "'started'; Start-Sleep -Seconds 5", "timeout_secs": 1i32 })).await;
+        let command = "[Console]::WriteLine('started'); [Console]::Out.Flush(); Start-Sleep -Seconds 5";
+        let result = run(tool(&tree), json!({ "command": command, "timeout_secs": 1i32 })).await;
         assert!(result.is_error);
         assert!(result.content.contains("timed out") && result.content.contains("started"), "{}", result.content);
     }
@@ -123,7 +123,7 @@ mod tests {
     async fn a_background_process_holding_the_pipe_does_not_hold_up_the_result() {
         let tree = TempTree::new("powershell-background");
         let started = Instant::now();
-        let command = "Start-Process -FilePath cmd.exe -ArgumentList '/c','ping -n 4 127.0.0.1' -NoNewWindow; 'done'";
+        let command = "cmd.exe /c 'start /b ping -n 4 127.0.0.1 & echo done'";
         let result = run(tool(&tree), json!({ "command": command, "timeout_secs": 30i32 })).await;
         assert!(result.content.contains("done"), "{}", result.content);
         assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
@@ -132,8 +132,8 @@ mod tests {
     #[tokio::test]
     async fn a_timeout_kills_what_the_command_started_too() {
         let tree = TempTree::new("powershell-group");
-        let command = "Start-Process -FilePath cmd.exe -ArgumentList '/c','ping -n 30 127.0.0.1' -NoNewWindow -PassThru \
-                       | Select-Object -ExpandProperty Id; Start-Sleep -Seconds 30";
+        let command = "$p = Start-Process -FilePath cmd.exe -ArgumentList '/c','ping -n 30 127.0.0.1' -NoNewWindow \
+                       -PassThru; [Console]::WriteLine($p.Id); [Console]::Out.Flush(); Start-Sleep -Seconds 30";
         let result = run(tool(&tree), json!({ "command": command, "timeout_secs": 1i32 })).await;
         let pid: u32 = result
             .content
