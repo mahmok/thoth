@@ -117,6 +117,10 @@ impl Harness {
         self.harness.session_mut(self.viewing).unwrap()
     }
 
+    fn is_busy(&self) -> bool {
+        self.harness.session(self.viewing).unwrap().is_busy()
+    }
+
     fn text(&mut self, delta: &str) {
         self.reply(Reply::Event(AgentEvent::Text(delta.to_owned())));
     }
@@ -193,6 +197,52 @@ fn sending_shows_the_message_starts_a_turn_and_is_accepted() {
     assert_eq!(h.said(), [(Speaker::You, "hello".to_owned())]);
     assert_eq!(h.agent.prompts(), ["hello"]);
     assert!(h.view().busy);
+}
+
+#[test]
+fn submitting_makes_the_session_busy_and_the_view_agree() {
+    let mut h = Harness::new();
+    assert!(!h.is_busy());
+    assert!(h.send("hello"));
+    assert!(h.is_busy());
+    assert!(h.view().busy);
+}
+
+#[test]
+fn a_done_reply_clears_the_session_and_the_view() {
+    let mut h = Harness::new();
+    h.send("hello");
+    h.done();
+    assert!(!h.is_busy());
+    assert!(!h.view().busy);
+}
+
+#[test]
+fn a_failed_reply_says_the_error_and_clears_the_session_and_the_view() {
+    let mut h = Harness::new();
+    h.send("hello");
+    h.reply(Reply::Failed("connection refused".into()));
+    assert_eq!(h.said_by(Speaker::Error), ["connection refused"]);
+    assert!(!h.is_busy());
+    assert!(!h.view().busy);
+}
+
+#[test]
+fn a_finished_turn_that_has_not_been_polled_is_not_refused() {
+    let mut h = Harness::new();
+    h.send("first");
+    h.agent.reply(Reply::Done { usage: None });
+    assert!(h.send("second"));
+    assert_eq!(h.agent.prompts(), ["first", "second"]);
+}
+
+#[test]
+fn a_running_turn_is_refused() {
+    let mut h = Harness::new();
+    h.send("first");
+    assert!(h.is_busy());
+    assert!(!h.send("second"));
+    assert_eq!(h.agent.prompts(), ["first"]);
 }
 
 #[test]

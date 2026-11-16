@@ -63,7 +63,7 @@ async fn settle(harness: &mut Harness, id: SessionId) {
     time::timeout(Duration::from_secs(5), async {
         loop {
             let _events = harness.poll();
-            if !harness.session(id).unwrap().view().busy {
+            if !harness.session(id).unwrap().is_busy() {
                 break;
             }
             time::sleep(Duration::from_millis(1)).await;

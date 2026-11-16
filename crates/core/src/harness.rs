@@ -247,7 +247,7 @@ impl Harness {
     #[inline]
     /// The ids of the Sessions, with whether each is busy.
     pub fn sessions(&self) -> Vec<(SessionId, bool)> {
-        let mut all: Vec<_> = self.sessions.iter().map(|(id, session)| (*id, session.view().busy)).collect();
+        let mut all: Vec<_> = self.sessions.iter().map(|(id, session)| (*id, session.is_busy())).collect();
         all.sort_unstable();
         all
     }
@@ -301,20 +301,12 @@ impl Harness {
 
         let files = self.files.attach(&full);
 
-        if let Some(session) = self.sessions.get_mut(&session_id) {
-            if session.view().busy {
-                return false;
-            }
-            session.say(Speaker::You, shown);
-            session.emit(SessionEvent::Busy(true));
-            let prompt = format!("{}{}", expand_skills(&full, session.agent_controller()), files);
-            session.start_turn(prompt);
-        } else {
+        let Some(session) = self.sessions.get_mut(&session_id) else {
             self.say(Speaker::Error, format!("No session {session_id} to submit the prompt to."));
             return false;
-        }
-
-        true
+        };
+        let prompt = format!("{}{}", expand_skills(&full, session.agent_controller()), files);
+        session.submit(shown, prompt).is_ok()
     }
 
     #[must_use]
