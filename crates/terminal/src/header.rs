@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn the_name_is_on_the_left_and_the_state_on_the_right() {
         let shown = row(State::Running);
-        assert!(shown.trim_start().starts_with("\u{256d}\u{25c6}\u{256e} THOTH"), "{shown:?}");
+        assert!(shown.trim_start().starts_with("\u{2500}\u{2500}\u{25cf}\u{2500}\u{2500} THOTH"), "{shown:?}");
         assert!(shown.trim_end().ends_with("\u{25cf} running"), "{shown:?}");
     }
 
