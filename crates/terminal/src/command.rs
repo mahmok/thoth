@@ -1,5 +1,6 @@
 use super::client::Client;
 use thoth_core::builtin::skills::SKILL_PREFIX;
+use thoth_core::harness::UseCaseError;
 #[cfg(test)]
 use thoth_core::llm::provider::Provider;
 use thoth_core::llm::thinking::Thinking;
@@ -56,6 +57,7 @@ pub enum Ran {
 pub enum Refused {
     Busy,
     LastSession,
+    MissingSession,
     UnknownChoice,
     UnknownCommand,
 }
@@ -64,6 +66,15 @@ impl From<Refusal> for Refused {
     fn from(refusal: Refusal) -> Self {
         match refusal {
             Refusal::Busy => Self::Busy,
+        }
+    }
+}
+
+impl From<UseCaseError> for Refused {
+    fn from(error: UseCaseError) -> Self {
+        match error {
+            UseCaseError::Busy => Self::Busy,
+            UseCaseError::MissingSession => Self::MissingSession,
         }
     }
 }
@@ -128,13 +139,14 @@ fn entries(session: &Client) -> Vec<Entry> {
             "thinking",
             "Set how hard the model thinks",
             Menu { title: "Thinking", empty_message: "nothing to choose", picks: levels },
-        ),
+        )
+        .needing_idle(),
         Entry::run("refresh-models", "Fetch the models each provider offers", |client| {
             client.refresh_models();
             Ok(Ran::Done)
         }),
         Entry::run("clear", "Clear the conversation", |client| {
-            client.session_mut().clear()?;
+            client.clear()?;
             Ok(Ran::Done)
         })
         .needing_idle(),
@@ -164,7 +176,7 @@ fn entries(session: &Client) -> Vec<Entry> {
             Menu { title: "Close session", empty_message: "no sessions", picks: closable },
         ),
         Entry::run("compact", "Summarize older turns to save tokens", |client| {
-            client.session_mut().compact(None)?;
+            client.compact(None)?;
             Ok(Ran::Done)
         })
         .needing_idle(),
@@ -226,7 +238,7 @@ fn models(session: &Client) -> Vec<Pick> {
             };
             let key = format!("{}/{}/{}", spec.provider.id, spec.protocol().label(), spec.model.id);
             let choice = Choice::new(key, spec.label(), note).needing_idle();
-            let apply: Apply = Box::new(move |s| Ok(s.session_mut().set_model(spec)?));
+            let apply: Apply = Box::new(move |s| s.set_model(spec).map_err(Refused::from));
             (choice, apply)
         })
         .collect()
@@ -297,11 +309,8 @@ fn levels(session: &Client) -> Vec<Pick> {
             } else {
                 level.description().to_owned()
             };
-            let apply: Apply = Box::new(move |s| {
-                s.session_mut().set_thinking(level);
-                Ok(())
-            });
-            (Choice::new(level.label(), level.label(), note), apply)
+            let apply: Apply = Box::new(move |s| s.set_thinking(level).map_err(Refused::from));
+            (Choice::new(level.label(), level.label(), note).needing_idle(), apply)
         })
         .collect()
 }
@@ -421,9 +430,15 @@ mod tests {
     }
 
     #[test]
-    fn model_and_clear_wait_for_an_idle_agent() {
+    fn a_missing_session_is_a_distinct_refusal() {
+        assert_eq!(Refused::from(UseCaseError::Busy), Refused::Busy);
+        assert_eq!(Refused::from(UseCaseError::MissingSession), Refused::MissingSession);
+    }
+
+    #[test]
+    fn the_session_use_cases_wait_for_an_idle_agent() {
         let idle: Vec<_> = list(&fresh().harness).into_iter().filter(|c| c.needs_idle).map(|c| c.id).collect();
-        assert_eq!(idle, ["model", "clear", "compact"]);
+        assert_eq!(idle, ["model", "thinking", "clear", "compact"]);
     }
 
     #[test]
@@ -507,7 +522,7 @@ mod tests {
         let mut f = fresh();
         f.harness.submit("hello".into(), "hello".into());
         f.agent.reply(Reply::Done { usage: None });
-        f.harness.session_mut().poll();
+        let _events = f.harness.poll();
         assert_eq!(run(&mut f.harness, "clear", None), Ok(Ran::Done));
         assert!(
             f.harness
@@ -521,14 +536,18 @@ mod tests {
     }
 
     #[test]
-    fn model_and_clear_are_refused_while_a_turn_runs() {
+    fn the_session_use_cases_are_refused_while_a_turn_runs() {
         let mut f = fresh();
         let models = open(&mut f.harness, "model");
+        let levels = open(&mut f.harness, "thinking");
         f.harness.submit("hello".into(), "hello".into());
         assert_eq!(run(&mut f.harness, "clear", None), Err(Refused::Busy));
+        assert_eq!(run(&mut f.harness, "compact", None), Err(Refused::Busy));
         assert_eq!(run(&mut f.harness, "model", None), Err(Refused::Busy));
+        assert_eq!(run(&mut f.harness, "thinking", None), Err(Refused::Busy));
         assert_eq!(f.agent.cleared(), 0);
         assert_eq!(choose(&mut f.harness, &models, "llama3"), Err(Refused::Busy));
+        assert_eq!(choose(&mut f.harness, &levels, "high"), Err(Refused::Busy));
     }
 
     #[test]

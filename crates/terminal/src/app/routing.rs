@@ -138,7 +138,7 @@ impl TerminalApp {
     pub fn poll_events(&mut self) -> bool {
         let current = self.harness.session_id();
         let events = self.harness.poll();
-        let mut changed = !events.is_empty();
+        let changed = !events.is_empty();
         for event in events {
             match event {
                 HarnessEvent::Login(login) => {
@@ -148,15 +148,10 @@ impl TerminalApp {
                 HarnessEvent::Session { id, event: inner } if id == current => self.on_event(inner),
                 HarnessEvent::Session { .. } | HarnessEvent::SessionClosed(_) => {},
                 HarnessEvent::Notice { speaker, text } => {
-                    self.harness.session_mut().say(speaker, text);
+                    // The viewed session exists; a refusal would mean it vanished under the app.
+                    let _refused = self.harness.notice(speaker, text);
                 },
             }
-        }
-        // What the notices added to the viewed session.
-        let said = self.harness.session_mut().poll();
-        changed |= !said.is_empty();
-        for event in said {
-            self.on_event(event);
         }
         changed
     }
