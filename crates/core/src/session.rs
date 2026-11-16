@@ -39,6 +39,8 @@ pub enum LoginState {
 /// One conversation and its view.
 pub struct Session {
     agent: Box<dyn AgentController>,
+    /// Whether the Agent is working. The Session owns this; [`View::busy`] is derived from it.
+    busy: bool,
     id: SessionId,
     out: Vec<SessionEvent>,
     stats: Stats,
@@ -70,7 +72,7 @@ impl Session {
     #[inline]
     /// Interrupts the running turn, if there is one.
     pub fn cancel(&mut self) {
-        if self.view.busy {
+        if self.busy {
             self.agent.apply(AgentChange::Interrupt);
         }
         self.sync_view();
@@ -99,8 +101,9 @@ impl Session {
     /// Refused while the Agent is busy.
     pub fn compact(&mut self, focus: Option<String>) -> Result<(), Refusal> {
         self.idle()?;
-        self.emit(SessionEvent::Busy(true));
+        self.busy = true;
         self.agent.compact(focus);
+        self.sync_view();
         Ok(())
     }
 
@@ -111,17 +114,32 @@ impl Session {
     }
 
     const fn idle(&self) -> Result<(), Refusal> {
-        if self.view.busy { Err(Refusal::Busy) } else { Ok(()) }
+        if self.busy { Err(Refusal::Busy) } else { Ok(()) }
+    }
+
+    #[must_use]
+    #[inline]
+    /// Whether the Agent is working. This is the Session's own state, not a projection.
+    pub const fn is_busy(&self) -> bool {
+        self.busy
     }
 
     #[must_use]
     #[inline]
     /// Creates a Session around an Agent controller.
     pub fn new(id: SessionId, agent: Box<dyn AgentController>) -> Self {
-        let mut session = Self { agent, id, stats: Stats::default(), view: View::default(), out: Vec::new() };
+        let mut session =
+            Self { agent, busy: false, id, stats: Stats::default(), view: View::default(), out: Vec::new() };
         session.announce_skills();
         session.settle();
         session
+    }
+
+    /// Applies everything the Agent has reported, without projecting it yet.
+    fn drain(&mut self) {
+        while let Some(reply) = self.agent.try_next() {
+            self.on_reply(reply);
+        }
     }
 
     /// Applies one reply of the Agent to the transcript and statistics.
@@ -134,11 +152,11 @@ impl Session {
             },
             Reply::Done { usage } => {
                 self.stats.record(usage);
-                self.emit(SessionEvent::Busy(false));
+                self.busy = false;
             },
             Reply::Failed(text) => {
                 self.say(Speaker::Error, text);
-                self.emit(SessionEvent::Busy(false));
+                self.busy = false;
             },
         }
     }
@@ -146,9 +164,7 @@ impl Session {
     #[inline]
     /// Reads what the Agent reported and returns the view changes since the last poll.
     pub fn poll(&mut self) -> Vec<SessionEvent> {
-        while let Some(reply) = self.agent.try_next() {
-            self.on_reply(reply);
-        }
+        self.drain();
         self.sync_view();
         mem::take(&mut self.out)
     }
@@ -194,9 +210,28 @@ impl Session {
         self.agent.start(expanded_prompt);
     }
 
+    /// Takes a prompt if the Agent is idle: shows it, becomes busy and starts the turn.
+    ///
+    /// # Errors
+    ///
+    /// Refused while the Agent is busy.
+    pub fn submit(&mut self, shown: String, expanded_prompt: String) -> Result<(), Refusal> {
+        // A turn that already finished is not a reason to refuse, even if nobody polled it.
+        self.drain();
+        self.idle()?;
+        self.say(Speaker::You, shown);
+        self.busy = true;
+        self.agent.start(expanded_prompt);
+        self.sync_view();
+        Ok(())
+    }
+
     #[inline]
     /// Emits events for settings, statistics and busy state that changed.
     pub fn sync_view(&mut self) {
+        if self.busy != self.view.busy {
+            self.emit(SessionEvent::Busy(self.busy));
+        }
         let settings = self.agent.settings();
         if settings != self.view.settings {
             self.emit(SessionEvent::Settings(settings));
