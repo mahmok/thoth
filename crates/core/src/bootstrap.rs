@@ -27,7 +27,7 @@ use anyhow::Context as _;
 ///
 /// Fails if the Workspace, skills, AGENTS.md files or Personas cannot be loaded.
 pub async fn start() -> anyhow::Result<Harness> {
-    let db = get_db().await?;
+    let _db = get_db().await?;
     let (store, store_notice) = open_credentials();
     let (models, models_notice) = open_models();
     let notice: Vec<String> = [store_notice, models_notice].into_iter().flatten().collect();
