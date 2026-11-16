@@ -23,7 +23,7 @@ tokio.workspace = true
 tokio-util = "0.7.20"
 ulid.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+sqlx = { version = "0.9", features = [ "runtime-tokio", "sqlite" ] }
 
 [lints]
 workspace = true
-

@@ -9,7 +9,6 @@ use crate::models::store::Models as ModelsStore;
 use crate::persona::Repository as PersonaRepository;
 
 #[derive(Debug)]
-/// What a Harness is built from.
 pub struct Services {
     pub builder: AgentBuilder,
     pub credentials: Arc<CredentialStore>,

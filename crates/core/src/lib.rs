@@ -25,6 +25,8 @@ pub mod llm;
 pub mod models;
 /// Notices for the user.
 pub mod notice;
+/// Where db constructs live
+pub mod persistence;
 /// Personas an Agent can play.
 pub mod persona;
 /// The services a Harness is built from.
