@@ -349,7 +349,7 @@ fn edit(workspace: &Workspace, args: &EditFileArgs) -> Result<String, String> {
 
     let count = spans.len();
     let shown = workspace.display_path(&full);
-    let diff = unified_diff(&text, &output, &shown.to_string());
+    let diff = unified_diff(&text, &output, &shown);
     Ok(truncate(format!("edited {shown} ({count} change{})\n{diff}", plural(count)), MAX_DIFF_BYTES))
 }
 

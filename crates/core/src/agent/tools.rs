@@ -1,11 +1,15 @@
+#[cfg(not(windows))]
 mod bash;
 pub mod delegate;
 mod edit_file;
 mod find_files;
 mod list_directory;
 pub mod message;
+#[cfg(windows)]
+mod powershell;
 mod read_file;
 mod search_files;
+mod shell;
 pub mod tool;
 pub mod tool_set;
 mod walk;
@@ -15,10 +19,13 @@ use crate::workspace::Workspace;
 use tool_set::ToolSet;
 
 use crate::agent::tools::invoke_skill::InvokeSkill;
+#[cfg(not(windows))]
 use bash::Bash;
 use edit_file::EditFile;
 use find_files::FindFiles;
 use list_directory::ListDirectory;
+#[cfg(windows)]
+use powershell::PowerShell;
 use read_file::ReadFile;
 use search_files::SearchFiles;
 use write_file::WriteFile;
@@ -39,9 +46,12 @@ pub fn builtin(workspace: Workspace) -> ToolSet {
         .and_then(|()| tools.register(SearchFiles::new(workspace.clone())))
         .and_then(|()| tools.register(FindFiles::new(workspace.clone())))
         .and_then(|()| tools.register(EditFile::new(workspace.clone())))
-        .and_then(|()| tools.register(WriteFile::new(workspace.clone())))
-        .and_then(|()| tools.register(Bash::new(workspace)))
-        .and_then(|()| tools.register(InvokeSkill::default()));
+        .and_then(|()| tools.register(WriteFile::new(workspace.clone())));
+    #[cfg(not(windows))]
+    let registered = registered.and_then(|()| tools.register(Bash::new(workspace)));
+    #[cfg(windows)]
+    let registered = registered.and_then(|()| tools.register(PowerShell::new(workspace)));
+    let registered = registered.and_then(|()| tools.register(InvokeSkill::default()));
     registered.expect("built-in tool names are unique");
     tools
 }
@@ -63,8 +73,9 @@ mod tests {
     fn only_the_tools_that_change_nothing_are_read_only() {
         let tree = TempTree::new("builtin-traits");
         let tools = builtin(tree.workspace());
+        let shell = if cfg!(windows) { "powershell" } else { "bash" };
         let read_only: Vec<&str> =
-            ["read_file", "list_directory", "search_files", "find_files", "edit_file", "write_file", "bash"]
+            ["read_file", "list_directory", "search_files", "find_files", "edit_file", "write_file", shell]
                 .into_iter()
                 .filter(|name| tools.traits(name, "{}").read_only)
                 .collect();
@@ -85,7 +96,7 @@ mod tests {
                 "find_files",
                 "edit_file",
                 "write_file",
-                "bash",
+                if cfg!(windows) { "powershell" } else { "bash" },
                 "invoke_skill"
             ]
         );
