@@ -14,6 +14,7 @@ use crate::models::fetch::ModelFetcher;
 use crate::models::refresh::Session as RefreshSession;
 use crate::models::store::{InMemory as InMemoryModelsStore, Json as JsonModelsStore, Models as ModelsStore};
 use crate::models::worker::TokioRefresh as TokioRefreshWorker;
+use crate::persistence::get_db;
 use crate::persona::Repository as PersonaRepository;
 use crate::services::Services;
 use crate::workspace::Workspace;
@@ -26,6 +27,7 @@ use anyhow::Context as _;
 ///
 /// Fails if the Workspace, skills, AGENTS.md files or Personas cannot be loaded.
 pub async fn start() -> anyhow::Result<Harness> {
+    let db = get_db().await?;
     let (store, store_notice) = open_credentials();
     let (models, models_notice) = open_models();
     let notice: Vec<String> = [store_notice, models_notice].into_iter().flatten().collect();

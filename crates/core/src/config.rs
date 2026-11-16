@@ -16,3 +16,13 @@ pub fn dir() -> Option<PathBuf> {
 
     Some(base.join(crate::APP_NAME))
 }
+
+#[inline]
+pub fn db_path() -> Option<PathBuf> {
+    if let Some(mut directory) = dir() {
+        directory.push("thoth.db");
+        return Some(directory);
+    } else {
+        return None;
+    }
+}
