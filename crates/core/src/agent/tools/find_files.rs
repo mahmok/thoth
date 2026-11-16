@@ -84,7 +84,7 @@ fn find(workspace: &Workspace, args: &FindFilesArgs) -> Result<String, String> {
             continue;
         }
         if found.len() < MAX_RESULTS {
-            found.push(workspace.display_path(entry.path()).to_string());
+            found.push(workspace.display_path(entry.path()));
         } else {
             more = more.saturating_add(1);
         }

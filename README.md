@@ -31,7 +31,7 @@ Thoth is a generic terminal AI agent framework: a person talks to an AI model th
 
 - **Personas**: Named configurations stored on disk (as Markdown files with YAML frontmatter) that define an agent's identity, system prompt, model preferences, thinking level, and allowed tools and skills. You can define custom personas or delegate sub-tasks to specialized sub-agents playing different personas.
 - **Terminal User Interface (TUI)**: A responsive, keyboard-driven interface built with Ratatui and Crossterm, featuring live markdown rendering, tool execution cards, syntax highlighting, and interactive pickers.
-- **Agentic Tools**: Equipped with file operations (`read_file`, `write_file`, `edit_file`, `find_files`, `search_files`, `list_directory`, `walk`), command execution (`bash`), task expansion via sub-agent delegation (`delegate`, `message`), and on-demand skill loading (`invoke_skill`).
+- **Agentic Tools**: Equipped with file operations (`read_file`, `write_file`, `edit_file`, `find_files`, `search_files`, `list_directory`, `walk`), command execution (`bash` on Unix, `powershell` on Windows), task expansion via sub-agent delegation (`delegate`, `message`), and on-demand skill loading (`invoke_skill`).
 - **Multiple LLM Providers**: First-class support for leading providers including Anthropic, OpenAI, Google, and GitHub Copilot with secure credential storage and robust negotiation.
 - **Smart Conversation Management**: Automatic budget tracking, conversation compaction (summarizing old turns when context limits approach), and tool output elision to keep token usage efficient.
 - **Modular Rust Architecture**: Clean separation into core engine logic (`thoth-core`), terminal interface (`thoth-terminal`), and binary entry point (`thoth`).
@@ -87,7 +87,7 @@ graph TD
         
         subgraph ToolsSub [Tools]
             ToolSet --> FileTools[File Tools<br/>Read, Write, Edit, Find, Search, Walk, List]
-            ToolSet --> BashTool[Bash Execution]
+            ToolSet --> BashTool[Shell Execution<br/>Bash or PowerShell]
             ToolSet --> DelegateTool[Delegate & Message Tools]
             ToolSet --> SkillTool[Invoke Skill Tool]
         end

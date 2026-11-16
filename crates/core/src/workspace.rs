@@ -21,8 +21,10 @@ pub struct Workspace {
 impl Workspace {
     #[must_use]
     #[inline]
-    pub fn display_path<'path>(&self, path: &'path Path) -> path::Display<'path> {
-        path.strip_prefix(&*self.root).unwrap_or(path).display()
+    /// `path` as the model sees it: relative to the root, with `/` separators on every platform.
+    pub fn display_path(&self, path: &Path) -> String {
+        let shown = path.strip_prefix(&*self.root).unwrap_or(path).to_string_lossy().into_owned();
+        if path::MAIN_SEPARATOR == '/' { shown } else { shown.replace(path::MAIN_SEPARATOR, "/") }
     }
 
     #[inline]
@@ -203,10 +205,13 @@ mod tests {
 
     #[test]
     fn refuses_paths_that_escape() {
+        let outside = TempTree::new("escape-outside").file("hosts", "");
         let tree = TempTree::new("escape");
         let ws = tree.workspace();
         ws.resolve("../../../etc/hosts").unwrap_err();
-        assert!(ws.resolve("/etc/hosts").unwrap_err().contains("outside the working directory"));
+        let absolute = outside.path().join("hosts");
+        let err = ws.resolve(absolute.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("outside the working directory"), "{err}");
     }
 
     #[cfg(unix)]
@@ -254,7 +259,7 @@ mod tests {
         let tree = TempTree::new("display").file("sub/b.txt", "y");
         let ws = tree.workspace();
         let full = ws.resolve("sub/b.txt").unwrap();
-        assert_eq!(ws.display_path(&full).to_string(), "sub/b.txt");
+        assert_eq!(ws.display_path(&full), "sub/b.txt");
     }
 
     #[test]

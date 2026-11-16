@@ -73,7 +73,12 @@ fn read(workspace: &Workspace, args: &ReadFileArgs) -> Result<String, String> {
     let text = workspace.read(&args.path, ReadPolicy::anywhere_up_to(MAX_FILE_BYTES)).map_err(|refusal| {
         let message = refusal.to_string();
         if message.contains("is too big") {
-            format!("{message}; look inside it with search_files, or with bash (head, tail, sed -n 'A,Bp')")
+            let hint = if cfg!(windows) {
+                "powershell (Get-Content -TotalCount, -Tail, or Select-Object -Skip/-First)"
+            } else {
+                "bash (head, tail, sed -n 'A,Bp')"
+            };
+            format!("{message}; look inside it with search_files, or with {hint}")
         } else {
             message
         }
