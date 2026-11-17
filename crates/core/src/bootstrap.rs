@@ -2,16 +2,16 @@ use alloc::sync::Arc;
 use std::env;
 use std::path::PathBuf;
 
-use crate::agent::context::Context as AgentContext;
+use crate::agent::context::AgentContext;
 use crate::agent::skills::SkillSet;
 use crate::agent_builder::AgentBuilder;
-use crate::auth::session::Login as LoginSession;
+use crate::auth::login::LoginAttempt;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::worker::TokioLogin as TokioLoginWorker;
 use crate::builtin::files::FileReferences;
 use crate::harness::Harness;
 use crate::models::fetch::ModelFetcher;
-use crate::models::refresh::Session as RefreshSession;
+use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::{InMemory as InMemoryModelsStore, Json as JsonModelsStore, Models as ModelsStore};
 use crate::models::worker::TokioRefresh as TokioRefreshWorker;
 use crate::persistence::get_db;
@@ -44,8 +44,8 @@ pub async fn start() -> anyhow::Result<Harness> {
     let harness = Harness::new(Services {
         personas,
         builder,
-        logins: LoginSession::new(Box::new(TokioLoginWorker::new(Arc::clone(&store))), Arc::clone(&store)),
-        refresh: RefreshSession::new(Box::new(TokioRefreshWorker::new(
+        logins: LoginAttempt::new(Box::new(TokioLoginWorker::new(Arc::clone(&store))), Arc::clone(&store)),
+        refresh: ModelRefreshRun::new(Box::new(TokioRefreshWorker::new(
             ModelFetcher::new(Arc::clone(&store)),
             Arc::clone(&models),
         ))),

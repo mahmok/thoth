@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
 use crate::agent::Agent;
-use crate::agent::context::Context as AgentContext;
+use crate::agent::context::AgentContext;
 use crate::agent::delegation::Delegation;
 use crate::agent::skills::SkillSet;
 use crate::agent::tools::tool::Outcome as ToolResult;

@@ -1,4 +1,4 @@
-use super::client::Client;
+use super::client::TerminalClient;
 use thoth_core::builtin::skills::SKILL_PREFIX;
 use thoth_core::harness::UseCaseError;
 #[cfg(test)]
@@ -80,13 +80,13 @@ impl From<UseCaseError> for Refused {
 }
 
 /// Applies a choice.
-type Apply = Box<dyn FnOnce(&mut Client) -> Result<(), Refused>>;
+type Apply = Box<dyn FnOnce(&mut TerminalClient) -> Result<(), Refused>>;
 
 /// A choice and how to apply it.
 type Pick = (Choice, Apply);
 
 /// Runs a command.
-type Run = Box<dyn Fn(&mut Client) -> Result<Ran, Refused>>;
+type Run = Box<dyn Fn(&mut TerminalClient) -> Result<Ran, Refused>>;
 
 /// What a command does.
 enum Action {
@@ -97,7 +97,7 @@ enum Action {
 /// A command with options.
 struct Menu {
     empty_message: &'static str,
-    picks: fn(&Client) -> Vec<Pick>,
+    picks: fn(&TerminalClient) -> Vec<Pick>,
     title: &'static str,
 }
 
@@ -121,13 +121,13 @@ impl Entry {
         Self { info: Command { id: id.to_owned(), description: description.to_owned(), needs_idle: false }, action }
     }
 
-    fn run(id: &str, description: &str, run: impl Fn(&mut Client) -> Result<Ran, Refused> + 'static) -> Self {
+    fn run(id: &str, description: &str, run: impl Fn(&mut TerminalClient) -> Result<Ran, Refused> + 'static) -> Self {
         Self::new(id, description, Action::Run(Box::new(run)))
     }
 }
 
 /// The slash commands, with the Session's current choices.
-fn entries(session: &Client) -> Vec<Entry> {
+fn entries(session: &TerminalClient) -> Vec<Entry> {
     let mut all = vec![
         Entry::choose(
             "model",
@@ -190,12 +190,12 @@ fn entries(session: &Client) -> Vec<Entry> {
     all
 }
 
-pub fn list(session: &Client) -> Vec<Command> {
+pub fn list(session: &TerminalClient) -> Vec<Command> {
     entries(session).into_iter().map(|e| e.info).collect()
 }
 
 /// Runs a command, with a choice for commands that have options.
-pub fn run(session: &mut Client, command: &str, choice: Option<&str>) -> Result<Ran, Refused> {
+pub fn run(session: &mut TerminalClient, command: &str, choice: Option<&str>) -> Result<Ran, Refused> {
     let found = entries(session).into_iter().find(|e| e.info.id == command).ok_or(Refused::UnknownCommand)?;
     let busy = session.view().busy;
     if busy && found.info.needs_idle {
@@ -223,7 +223,7 @@ pub fn run(session: &mut Client, command: &str, choice: Option<&str>) -> Result<
 }
 
 /// The models to pick from, marking the current one.
-fn models(session: &Client) -> Vec<Pick> {
+fn models(session: &TerminalClient) -> Vec<Pick> {
     let current = session.view().settings.model.clone();
     session
         .models()
@@ -244,7 +244,7 @@ fn models(session: &Client) -> Vec<Pick> {
         .collect()
 }
 
-fn personas(client: &Client) -> Vec<Pick> {
+fn personas(client: &TerminalClient) -> Vec<Pick> {
     client
         .personas()
         .into_iter()
@@ -260,7 +260,7 @@ fn personas(client: &Client) -> Vec<Pick> {
         .collect()
 }
 
-fn session_choices(client: &Client) -> Vec<(SessionId, Choice)> {
+fn session_choices(client: &TerminalClient) -> Vec<(SessionId, Choice)> {
     client
         .sessions()
         .into_iter()
@@ -278,7 +278,7 @@ fn session_choices(client: &Client) -> Vec<(SessionId, Choice)> {
         .collect()
 }
 
-fn sessions(client: &Client) -> Vec<Pick> {
+fn sessions(client: &TerminalClient) -> Vec<Pick> {
     session_choices(client)
         .into_iter()
         .map(|(id, choice)| {
@@ -288,7 +288,7 @@ fn sessions(client: &Client) -> Vec<Pick> {
         .collect()
 }
 
-fn closable(client: &Client) -> Vec<Pick> {
+fn closable(client: &TerminalClient) -> Vec<Pick> {
     session_choices(client)
         .into_iter()
         .map(|(id, choice)| {
@@ -299,7 +299,7 @@ fn closable(client: &Client) -> Vec<Pick> {
 }
 
 /// The thinking levels to pick from, marking the current one.
-fn levels(session: &Client) -> Vec<Pick> {
+fn levels(session: &TerminalClient) -> Vec<Pick> {
     let current = session.view().settings.thinking;
     Thinking::ALL
         .into_iter()
@@ -316,7 +316,7 @@ fn levels(session: &Client) -> Vec<Pick> {
 }
 
 /// The providers to log in to, with their state.
-fn logins(session: &Client) -> Vec<Pick> {
+fn logins(session: &TerminalClient) -> Vec<Pick> {
     session
         .login_providers()
         .into_iter()
@@ -338,7 +338,7 @@ fn logins(session: &Client) -> Vec<Pick> {
         .collect()
 }
 
-fn logouts(session: &Client) -> Vec<Pick> {
+fn logouts(session: &TerminalClient) -> Vec<Pick> {
     session
         .saved_logins()
         .into_iter()
@@ -357,10 +357,10 @@ fn logouts(session: &Client) -> Vec<Pick> {
 mod tests {
     use super::*;
     use alloc::rc::Rc;
-    use thoth_core::agent::controller::Reply;
-    use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
-    use thoth_core::harness::Event as HarnessEvent;
+    use thoth_core::agent::turn_runner::Reply;
+    use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::harness::Harness;
+    use thoth_core::harness::HarnessEvent;
     use thoth_core::models::testing::fixture;
     use thoth_core::test::assert_empty;
     use thoth_core::test::scripted::Scripted;
@@ -370,12 +370,12 @@ mod tests {
     use thoth_core::transcript::Speaker;
 
     struct Fixture {
-        agent: Rc<ScriptedAgent>,
-        harness: Client,
+        agent: Rc<ScriptedTurnRunner>,
+        harness: TerminalClient,
         session: SessionId,
     }
 
-    fn fixture_with(agent: Rc<ScriptedAgent>, logged_in: &[Provider]) -> Fixture {
+    fn fixture_with(agent: Rc<ScriptedTurnRunner>, logged_in: &[Provider]) -> Fixture {
         let scripted = Scripted::new(agent, logged_in);
         let mut services = scripted.services(fixture());
         services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
@@ -383,32 +383,32 @@ mod tests {
         // A fixed, low id keeps the first session first in the creation order the menu shows.
         let session = "00000000000000000000000001".parse().expect("a ULID string parses");
         harness.start_session_with(session, Box::new(Rc::clone(&scripted.agent)));
-        Fixture { harness: Client::open(harness).unwrap(), agent: scripted.agent, session }
+        Fixture { harness: TerminalClient::open(harness).unwrap(), agent: scripted.agent, session }
     }
 
     fn fresh() -> Fixture {
-        fixture_with(ScriptedAgent::new(), &[])
+        fixture_with(ScriptedTurnRunner::new(), &[])
     }
 
     fn labels(choices: &Choices) -> Vec<String> {
         choices.items.iter().map(|c| c.label.clone()).collect()
     }
 
-    fn open(session: &mut Client, name: &str) -> Choices {
+    fn open(session: &mut TerminalClient, name: &str) -> Choices {
         match run(session, name, None) {
             Ok(Ran::Choices(choices)) => choices,
             other => panic!("{name} should list its choices, got {other:?}"),
         }
     }
 
-    fn choose(session: &mut Client, choices: &Choices, label: &str) -> Result<Ran, Refused> {
+    fn choose(session: &mut TerminalClient, choices: &Choices, label: &str) -> Result<Ran, Refused> {
         let choice = choices.items.iter().find(|c| c.label.contains(label)).ok_or(Refused::UnknownChoice)?;
         run(session, &choices.command, Some(&choice.key))
     }
 
     #[test]
     fn the_commands_are_the_built_ins_and_the_skills() {
-        let f = fixture_with(ScriptedAgent::new().with_skill("tdd", "Test first"), &[]);
+        let f = fixture_with(ScriptedTurnRunner::new().with_skill("tdd", "Test first"), &[]);
         let ids: Vec<_> = list(&f.harness).into_iter().map(|c| c.id).collect();
         assert_eq!(
             ids,
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn a_skill_command_inserts_its_reference() {
-        let mut f = fixture_with(ScriptedAgent::new().with_skill("tdd", "Test first"), &[]);
+        let mut f = fixture_with(ScriptedTurnRunner::new().with_skill("tdd", "Test first"), &[]);
         assert_eq!(run(&mut f.harness, "skill:tdd", None), Ok(Ran::Insert("/skill:tdd ".into())));
     }
 
@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn login_and_logout_list_their_own_providers() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::builtin("openai").unwrap()]);
+        let mut f = fixture_with(ScriptedTurnRunner::new(), &[Provider::builtin("openai").unwrap()]);
         let logins = open(&mut f.harness, "login");
         let expected: Vec<String> = Provider::logins().iter().map(|p| p.display_name().to_owned()).collect();
         assert_eq!(labels(&logins), expected);
@@ -597,7 +597,7 @@ mod tests {
 
     #[test]
     fn logout_removes_the_saved_login_and_the_old_list_is_then_stale() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::builtin("github-copilot").unwrap()]);
+        let mut f = fixture_with(ScriptedTurnRunner::new(), &[Provider::builtin("github-copilot").unwrap()]);
         let saved = open(&mut f.harness, "logout");
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Ok(Ran::Done));
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Err(Refused::UnknownChoice));

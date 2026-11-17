@@ -9,7 +9,7 @@ use crate::sync::MutexExt as _;
 
 use super::flow::{self, LoginEvent};
 use super::github::{Endpoints, Github};
-use super::session::LoginWorker;
+use super::login::LoginWorker;
 use super::store::Credentials as CredentialStore;
 
 #[derive(Debug)]

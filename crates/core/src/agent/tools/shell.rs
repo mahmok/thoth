@@ -11,7 +11,7 @@ use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
 
-use super::tool::{Context as ToolContext, Description, Outcome as ToolResult};
+use super::tool::{Description, Outcome as ToolResult, ToolContext};
 use crate::sync::MutexExt as _;
 use crate::workspace::Workspace;
 

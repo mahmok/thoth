@@ -6,15 +6,15 @@ use alloc::rc::Rc;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use thoth_core::agent::controller::Reply;
-use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
+use thoth_core::agent::turn_runner::Reply;
+use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
 use thoth_core::harness::Harness as CoreHarness;
 use thoth_core::models::testing::fixture;
 use thoth_core::session::SessionId;
 use thoth_core::test::scripted::Scripted;
 
 use crate::app::TerminalApp;
-use crate::client::Client;
+use crate::client::TerminalClient;
 
 /// The width the app is drawn at, wide enough for a full footer and a wrapped chat.
 pub const WIDTH: u16 = 100;
@@ -41,7 +41,7 @@ impl Harness {
         }
         scripted.files.wait();
         Self {
-            app: TerminalApp::new(Client::open(harness).unwrap()),
+            app: TerminalApp::new(TerminalClient::open(harness).unwrap()),
             scripted,
             terminal: Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap(),
             now: 0,
@@ -62,7 +62,7 @@ impl Harness {
     }
 
     pub fn new() -> Self {
-        Self::with(ScriptedAgent::new(), None)
+        Self::with(ScriptedTurnRunner::new(), None)
     }
 
     pub fn mouse(&mut self, kind: MouseEventKind, column: u16, row: u16) {
@@ -111,11 +111,11 @@ impl Harness {
         }
     }
 
-    pub fn with(control: Rc<ScriptedAgent>, notice: Option<&str>) -> Self {
+    pub fn with(control: Rc<ScriptedTurnRunner>, notice: Option<&str>) -> Self {
         Self::build(Scripted::new(control, &[]), notice)
     }
 
-    pub fn with_agent(control: Rc<ScriptedAgent>) -> Self {
+    pub fn with_agent(control: Rc<ScriptedTurnRunner>) -> Self {
         Self::with(control, None)
     }
 }

@@ -58,7 +58,7 @@ graph TD
     %% Terminal UI Layer
     subgraph Terminal [thoth-terminal Layer]
         TUIBoot --> App[App State & Lifecycle<br/>Routing & Commands]
-        App --> Client[Client<br/>Session & Harness Client]
+        App --> Client[Terminal Client<br/>Session & Harness Client]
         App --> TUIViews[Views & Rendering]
         TUIViews --> Chat[Chat View<br/>Markdown & Tool Cards]
         TUIViews --> Picker[Picker & Popups<br/>Models, Mentions, Skills]
@@ -74,7 +74,7 @@ graph TD
         Harness --> Models[Model Store & Fetcher<br/>Provider Capabilities]
 
         Sessions --> Builder[AgentBuilder]
-        Builder --> Agent[Agent Controller<br/>Turn & Step Loop]
+        Builder --> Agent[Agent Runtime<br/>Turn & Step Loop]
 
         subgraph AgentSub [Agent Subsystems]
             Agent --> Conv[Conversation<br/>Compaction & Elision]

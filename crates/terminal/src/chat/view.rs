@@ -188,7 +188,7 @@ fn inner(area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use thoth_core::agent::Event as AgentEvent;
+    use thoth_core::agent::AgentEvent;
     use thoth_core::transcript::Speaker;
 
     use super::*;

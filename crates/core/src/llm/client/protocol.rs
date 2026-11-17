@@ -15,8 +15,8 @@ use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, Strea
 use super::fake::Client as FakeClient;
 
 #[derive(Debug)]
-/// A client of any protocol.
-pub enum Client {
+/// The protocol client of one Model: its dialect, resolved to the provider's endpoint.
+pub enum ProtocolClient {
     Anthropic(AnthropicClient),
     #[cfg(any(test, feature = "testing"))]
     Fake(FakeClient),
@@ -25,7 +25,7 @@ pub enum Client {
     Responses(ResponsesClient),
 }
 
-impl Client {
+impl ProtocolClient {
     /// The client for a model's protocol.
     ///
     /// # Errors
@@ -46,7 +46,7 @@ impl Client {
     }
 }
 
-impl LlmClient for Client {
+impl LlmClient for ProtocolClient {
     #[inline]
     async fn create_completion_stream<F>(
         &self,
@@ -76,7 +76,7 @@ mod live_tests {
         let messages = [Message::system("Answer in one word."), Message::user("Say hi.")];
         let request = CreateCompletionRequest { messages: &messages, ..Default::default() };
         let store = Arc::new(CredentialStore::in_memory());
-        Client::for_model(spec, &store, SessionId::mint())
+        ProtocolClient::for_model(spec, &store, SessionId::mint())
             .unwrap()
             .create_completion_stream(request, |_| {})
             .await
@@ -100,7 +100,7 @@ mod live_tests {
             ("gemini-4-argon", Protocol::Google),
         ] {
             let spec = ModelSpec::new(Arc::clone(&provider), Model::new(id).with_protocol(Some(protocol)));
-            let done = Client::for_model(&spec, &store, SessionId::mint())
+            let done = ProtocolClient::for_model(&spec, &store, SessionId::mint())
                 .unwrap()
                 .create_completion_stream(CreateCompletionRequest { messages: &messages, ..Default::default() }, |_| {})
                 .await

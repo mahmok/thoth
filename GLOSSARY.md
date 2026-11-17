@@ -32,6 +32,11 @@ One model call inside a turn. A turn is bounded by a maximum number of steps, an
 for tools is what makes the turn continue.
 _Avoid_: iteration, loop
 
+**Turn runner**:
+The port a session drives to run one turn or a compaction and to read the agent's settings and
+skills. `TokioTurnRunner` runs turns on the tokio runtime; a scripted one stands in for tests.
+_Avoid_: controller, agent handle, worker
+
 **Budget**:
 How much context a conversation may use: when to summarise old turns, and when to drop old tool
 output. It is a property of the conversation, not an allowance for one turn.
@@ -80,9 +85,24 @@ _Avoid_: model reference, model key, model id
 The wire dialect a provider speaks. A model may name its own; otherwise it inherits its provider's.
 _Avoid_: API, format
 
+**Protocol client**:
+The client for one model that speaks its provider's dialect: OpenAI, Anthropic, Gemini, or
+Responses. It is chosen for a model spec and carries the resolved credential.
+_Avoid_: API client, model client, backend
+
+**Model refresh run**:
+One refresh of every logged-in provider's model list, from starting it to its last report. It
+holds the worker and whether it is running, and reports what happened per provider.
+_Avoid_: refresh session, fetch, sync
+
 **Login method**:
 How a provider is authenticated: not at all, an API key, or a device flow.
 _Avoid_: auth type, login
+
+**Login attempt**:
+One attempt to log a provider in, from starting it to the credential it stores. It holds the
+device code or the pending secret, the providers it has logged in, and the worker running it.
+_Avoid_: login session, auth session
 
 **Credential**:
 The stored secret for one provider — an API key or an OAuth token. A login produces one; the
@@ -176,10 +196,19 @@ _Avoid_: command, action, mutation
 
 ## The terminal
 
+**Process manager**:
+An application type that owns the lifecycle of one running process and the state only that
+process may change: when work starts and stops, what it reported, and the projection a client
+reads. A session, a login attempt and a model refresh run are process managers.
+_Avoid_: actor, controller, service
+
 **Session**:
-One conversation and its view: the agent behind it, what the client may show, and the statistics
-for it. It is identified by a session id.
-_Avoid_: chat, tab, window
+The process manager for one conversation: it owns the turn runner, the authoritative busy flag,
+the settings, the statistics, the transcript projection, and the events waiting for its client.
+The conversation behind it is the aggregate; the view is a projection of it. A session is
+identified by a session id. Only a conversation session is a session: a login is an attempt and
+a model refresh is a run.
+_Avoid_: chat, tab, window, login session, refresh session
 
 **Session id**:
 The identity of a session: a ULID minted when it starts, independent of its model and of the client
@@ -191,6 +220,12 @@ _Avoid_: conversation id, thread id, cache key
 The shared runtime a client talks to: every open session, plus the builder, credentials, models,
 personas, and login state those sessions share.
 _Avoid_: server, manager, runtime, test rig
+
+**Terminal client**:
+The façade the terminal app and command layer call: the harness plus the one session it is
+showing. It exposes the harness's use cases and a read-only session accessor, and nothing that
+would let the UI mutate a session directly.
+_Avoid_: façade, shell, wrapper
 
 **Command**:
 Something the user types after a slash. Commands are user-facing and unrelated to tools.

@@ -2,8 +2,6 @@
 pub mod budget;
 /// Prompt context: AGENTS.md files and the token budget.
 pub mod context;
-/// Runs an Agent on its own task and reports back.
-pub mod controller;
 /// The message history and how it shrinks.
 pub mod conversation;
 pub mod delegation;
@@ -14,20 +12,22 @@ pub mod sub_agents;
 pub mod tools;
 /// Runs one Turn: its model steps, Tool calls, and events.
 mod turn;
+/// Runs a Turn on its own task and reports back.
+pub mod turn_runner;
 /// The messages and responses of an Agent.
 pub mod types;
 
 use crate::agent::budget::ContextBudget;
-use crate::agent::context::{Budget, Context as AgentContext};
+use crate::agent::context::{AgentContext, Budget};
 use crate::agent::delegation::Delegation;
 use crate::agent::skills::SkillSet;
 use crate::agent::sub_agents::SubAgents;
 use crate::agent::tools::tool::Outcome as ToolResult;
 use crate::agent::tools::tool_set::ToolSet;
 use crate::auth::store::Credentials as CredentialStore;
-use crate::llm::client::any::Client as AnyClient;
 use crate::llm::client::chat::Usage;
 use crate::llm::client::error::Failure as ClientError;
+use crate::llm::client::protocol::ProtocolClient;
 use crate::llm::provider::ModelSpec;
 use crate::llm::thinking::Thinking;
 use crate::session::SessionId;
@@ -53,7 +53,7 @@ pub const COMPACTION_CALL_ID: &str = "compaction";
 
 #[derive(Debug, Clone)]
 /// Something an Agent reports while it works.
-pub enum Event {
+pub enum AgentEvent {
     /// Something the user should know about the turn that is not the model's own words.
     Notice(String),
     /// A fragment of the model's thinking, shown apart from the reply.
@@ -101,7 +101,7 @@ pub struct Settings {
 
 #[derive(Debug)]
 /// A change to apply to an Agent.
-pub enum Change {
+pub enum AgentChange {
     /// Forget the conversation.
     ClearConversation,
     /// Stop the running turn.
@@ -172,7 +172,7 @@ impl Drop for ActiveGuard<'_> {
 #[derive(Debug)]
 /// A model and its client, or the reason its protocol has no client.
 struct Current {
-    client: Result<Arc<AnyClient>, String>,
+    client: Result<Arc<ProtocolClient>, String>,
     spec: ModelSpec,
 }
 
@@ -202,14 +202,14 @@ pub struct Agent {
 impl Agent {
     #[inline]
     /// Applies a change that was queued for the Agent.
-    pub fn apply(&self, change: Change) {
+    pub fn apply(&self, change: AgentChange) {
         match change {
-            Change::SetModel(spec) => self.set_model(spec),
-            Change::SetThinking(thinking) => self.set_thinking(thinking),
-            Change::ClearConversation => {
+            AgentChange::SetModel(spec) => self.set_model(spec),
+            AgentChange::SetThinking(thinking) => self.set_thinking(thinking),
+            AgentChange::ClearConversation => {
                 let _cleared = self.clear_conversation();
             },
-            Change::Interrupt => self.interrupt(),
+            AgentChange::Interrupt => self.interrupt(),
         }
     }
 
@@ -226,7 +226,7 @@ impl Agent {
         )
     }
 
-    fn client(&self) -> Result<Arc<AnyClient>, Failure> {
+    fn client(&self) -> Result<Arc<ProtocolClient>, Failure> {
         let current = self.current.read_unpoisoned();
         let client = match current.as_ref().ok_or(Failure::NoModel)?.client {
             Ok(ref client) => Ok(Arc::clone(client)),
@@ -245,7 +245,7 @@ impl Agent {
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     pub async fn compact<F>(&self, focus: Option<String>, mut on_event: F) -> Result<Option<Usage>, Failure>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         if !self.budget.compacts() {
             return Err(Failure::Compaction("compaction is turned off"));
@@ -255,7 +255,7 @@ impl Agent {
         let compaction = self.compact_conversation(&mut conversation, 0, focus.as_deref(), &mut on_event);
         match until(&cancelled, compaction).await {
             Err(Failure::NothingToCompact) => {
-                on_event(Event::ToolFinished {
+                on_event(AgentEvent::ToolFinished {
                     id: COMPACTION_CALL_ID.into(),
                     summary: "compact conversation".into(),
                     result: ToolResult::ok("Nothing to compact yet: only the latest turn is there."),
@@ -346,7 +346,8 @@ impl Agent {
     #[inline]
     /// Switches to `spec`, with a client of its own, and restarts token calibration.
     fn set_model(&self, spec: ModelSpec) {
-        let client = AnyClient::for_model(&spec, &self.store, self.session).map(Arc::new).map_err(|e| e.to_string());
+        let client =
+            ProtocolClient::for_model(&spec, &self.store, self.session).map(Arc::new).map_err(|e| e.to_string());
         *self.current.write_unpoisoned() = Some(Current { client, spec });
         // Another model counts tokens its own way.
         *self.calibration.lock_unpoisoned() = 1.0;
@@ -387,7 +388,7 @@ impl Agent {
     #[inline]
     /// Replaces the client of the current model, for tests.
     #[must_use]
-    pub fn with_client(self, client: AnyClient) -> Self {
+    pub fn with_client(self, client: ProtocolClient) -> Self {
         if let Some(current) = self.current.write_unpoisoned().as_mut() {
             current.client = Ok(Arc::new(client));
         }

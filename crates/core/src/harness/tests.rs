@@ -9,16 +9,16 @@ use tokio::time;
 
 use super::*;
 use crate::agent::COMPACTION_CALL_ID;
-use crate::agent::context::{Budget, Compaction, Context as AgentContext};
+use crate::agent::context::{AgentContext, Budget, Compaction};
 use crate::agent::skills::SkillSet;
 use crate::agent_builder::AgentBuilder;
-use crate::auth::session::Login as LoginSession;
+use crate::auth::login::LoginAttempt;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::llm::client::StreamedCompletion;
 use crate::llm::client::error::Failure as ClientError;
 use crate::llm::client::fake::Client as FakeClient;
 use crate::llm::provider::Model;
-use crate::models::refresh::Session as RefreshSession;
+use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::persona::{Persona, Repository as PersonaRepository};
@@ -51,10 +51,10 @@ fn over_budget(fake: FakeClient, tree: &TempTree) -> Harness {
         builder,
         credentials: store,
         files: Arc::new(FileReferences::new(tree.workspace())),
-        logins: LoginSession::new(Box::new(ScriptedLoginWorker::new()), Arc::new(CredentialStore::in_memory())),
+        logins: LoginAttempt::new(Box::new(ScriptedLoginWorker::new()), Arc::new(CredentialStore::in_memory())),
         models,
         personas,
-        refresh: RefreshSession::new(Box::new(ScriptedRefreshWorker::new())),
+        refresh: ModelRefreshRun::new(Box::new(ScriptedRefreshWorker::new())),
     })
 }
 

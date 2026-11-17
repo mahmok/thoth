@@ -3,10 +3,10 @@ use core::time::Duration;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::style::Color;
-use thoth_core::agent::Event as AgentEvent;
-use thoth_core::agent::controller::Reply;
-use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
+use thoth_core::agent::AgentEvent;
 use thoth_core::agent::tools::tool::Outcome as ToolResult;
+use thoth_core::agent::turn_runner::Reply;
+use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
 use thoth_core::auth::flow::LoginEvent;
 use thoth_core::llm::client::chat::Usage;
 use thoth_core::llm::provider::Provider;
@@ -229,21 +229,23 @@ fn the_footer_shows_the_model_and_thinking_level_on_the_right() {
 
 #[test]
 fn the_footer_says_when_no_model_is_selected() {
-    let mut h = Harness::with_agent(ScriptedAgent::new().without_model());
+    let mut h = Harness::with_agent(ScriptedTurnRunner::new().without_model());
     assert!(h.footer().ends_with("no model \u{b7} thinking medium"));
 }
 
 #[test]
 fn a_startup_notice_is_shown_as_an_error() {
-    let mut h =
-        Harness::with(ScriptedAgent::new(), Some("Could not read auth.json. Logins will not be saved this session."));
+    let mut h = Harness::with(
+        ScriptedTurnRunner::new(),
+        Some("Could not read auth.json. Logins will not be saved this session."),
+    );
     let screen = h.screen();
     assert!(screen.contains("error: Could not read auth.json"), "{screen}");
 }
 
 #[test]
 fn loaded_skills_are_listed_at_the_top_of_the_chat() {
-    let mut h = Harness::with_agent(ScriptedAgent::new().with_skill("demo", "a demo"));
+    let mut h = Harness::with_agent(ScriptedTurnRunner::new().with_skill("demo", "a demo"));
     let screen = h.screen();
     assert!(screen.contains("skills: 1 loaded") && screen.contains("demo"), "{screen}");
 }
@@ -393,7 +395,7 @@ fn clearing_empties_the_chat() {
 
 #[test]
 fn a_slash_opens_the_command_picker_with_its_own_hints() {
-    let mut h = Harness::with_agent(ScriptedAgent::new().with_skill("tdd", "Test first"));
+    let mut h = Harness::with_agent(ScriptedTurnRunner::new().with_skill("tdd", "Test first"));
     h.type_text("/");
     let screen = h.screen();
     for expected in ["Commands", "/model", "/clear", "/persona", "/session", "Esc: close"] {
@@ -543,7 +545,7 @@ fn the_device_code_and_link_are_shown_in_the_chat() {
 #[test]
 fn logging_out_says_so() {
     let mut h =
-        Harness::build(Scripted::new(ScriptedAgent::new(), &[Provider::builtin("github-copilot").unwrap()]), None);
+        Harness::build(Scripted::new(ScriptedTurnRunner::new(), &[Provider::builtin("github-copilot").unwrap()]), None);
     h.type_text("/logout");
     h.press(KeyCode::Enter);
     h.press(KeyCode::Enter);
@@ -552,7 +554,7 @@ fn logging_out_says_so() {
 
 #[test]
 fn choosing_a_skill_fills_the_prompt_and_quit_quits() {
-    let mut h = Harness::with_agent(ScriptedAgent::new().with_skill("tdd", "Test first"));
+    let mut h = Harness::with_agent(ScriptedTurnRunner::new().with_skill("tdd", "Test first"));
     h.type_text("/skill:tdd");
     h.press(KeyCode::Enter);
     assert_eq!(h.app.prompt.text(), "/skill:tdd ");
@@ -596,7 +598,7 @@ fn escape_closes_the_model_menu_without_changing_the_model() {
 
 #[test]
 fn a_skill_command_fills_the_prompt_and_the_skill_is_sent_expanded() {
-    let mut h = Harness::with_agent(ScriptedAgent::new().with_skill("tdd", "Test first"));
+    let mut h = Harness::with_agent(ScriptedTurnRunner::new().with_skill("tdd", "Test first"));
     h.type_text("/sk");
     h.press(KeyCode::Enter);
     assert_eq!(h.app.prompt.text(), "/skill:tdd ");

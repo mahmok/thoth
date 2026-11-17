@@ -1,4 +1,4 @@
-use super::event::Event as SessionEvent;
+use super::event::SessionEvent;
 use super::stats::Stats;
 use crate::agent::Settings;
 use crate::transcript::Transcript;

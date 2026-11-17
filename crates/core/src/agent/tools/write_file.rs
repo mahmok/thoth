@@ -4,7 +4,7 @@ use std::fs;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, blocking};
+use super::tool::{Description, Outcome as ToolResult, Tool, ToolContext, blocking};
 use crate::workspace::Workspace;
 #[derive(Debug)]
 

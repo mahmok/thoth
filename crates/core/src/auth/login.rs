@@ -29,8 +29,8 @@ enum Phase {
 }
 
 #[derive(Debug)]
-/// A login in progress.
-pub struct Login {
+/// A login attempt in progress.
+pub struct LoginAttempt {
     device_code: Option<String>,
     logged_in: Vec<Provider>,
     phase: Phase,
@@ -38,7 +38,7 @@ pub struct Login {
     worker: Box<dyn LoginWorker>,
 }
 
-impl Login {
+impl LoginAttempt {
     #[must_use]
     #[inline]
     pub fn awaiting_secret(&self) -> bool {
@@ -164,26 +164,26 @@ mod tests {
     use crate::test::assert_empty;
 
     struct Rig {
-        session: Login,
+        attempt: LoginAttempt,
         store: Arc<CredentialStore>,
         worker: Rc<ScriptedLoginWorker>,
     }
 
     impl Rig {
         fn poll(&mut self) -> Vec<Notice> {
-            self.session.poll()
+            self.attempt.poll()
         }
 
         fn start(&mut self, provider: &Provider) -> Vec<Notice> {
-            self.session.start(provider)
+            self.attempt.start(provider)
         }
     }
 
     fn rig() -> Rig {
         let worker = ScriptedLoginWorker::new();
         let store = Arc::new(CredentialStore::in_memory());
-        let session = Login::new(Box::new(Rc::clone(&worker)), Arc::clone(&store));
-        Rig { session, store, worker }
+        let attempt = LoginAttempt::new(Box::new(Rc::clone(&worker)), Arc::clone(&store));
+        Rig { attempt, store, worker }
     }
 
     fn says(updates: &[Notice]) -> Vec<&str> {
@@ -199,11 +199,11 @@ mod tests {
     #[test]
     fn starting_a_login_announces_it_and_becomes_active() {
         let mut r = rig();
-        assert!(!r.session.is_active());
+        assert!(!r.attempt.is_active());
         let updates = r.start(&Provider::builtin("github-copilot").unwrap());
         assert_eq!(says(&updates), ["Logging in to GitHub Copilot..."]);
         assert_eq!(r.worker.started(), [Provider::builtin("github-copilot").unwrap()]);
-        assert!(r.session.is_active() && !r.session.awaiting_secret());
+        assert!(r.attempt.is_active() && !r.attempt.awaiting_secret());
     }
 
     #[test]
@@ -216,12 +216,12 @@ mod tests {
         assert!(
             matches!(&updates[0], Notice::Say(t) if t.contains("https://github.com/login/device") && t.contains("ABCD-1234"))
         );
-        assert_eq!(r.session.device_code(), Some("ABCD-1234"));
-        assert!(r.session.is_active() && !r.session.awaiting_secret());
+        assert_eq!(r.attempt.device_code(), Some("ABCD-1234"));
+        assert!(r.attempt.is_active() && !r.attempt.awaiting_secret());
 
         r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         r.poll();
-        assert_eq!(r.session.device_code(), None);
+        assert_eq!(r.attempt.device_code(), None);
     }
 
     #[test]
@@ -230,19 +230,19 @@ mod tests {
         r.start(&Provider::builtin("openai").unwrap());
         r.worker.event(LoginEvent::PromptSecret { message: "Paste your OpenAI API key".into() });
         assert_eq!(says(&r.poll()), ["Paste your OpenAI API key"]);
-        assert!(r.session.awaiting_secret());
+        assert!(r.attempt.awaiting_secret());
 
-        r.session.submit("sk-1".into());
+        r.attempt.submit("sk-1".into());
         assert_eq!(r.worker.answers(), ["sk-1"]);
-        assert!(!r.session.awaiting_secret() && r.session.is_active());
+        assert!(!r.attempt.awaiting_secret() && r.attempt.is_active());
     }
 
     #[test]
     fn a_secret_is_only_accepted_when_one_was_asked_for() {
         let mut r = rig();
-        r.session.submit("sk-stray".into());
+        r.attempt.submit("sk-stray".into());
         r.start(&Provider::builtin("github-copilot").unwrap());
-        r.session.submit("sk-stray".into());
+        r.attempt.submit("sk-stray".into());
         assert_empty(r.worker.answers());
     }
 
@@ -252,9 +252,9 @@ mod tests {
         r.start(&Provider::builtin("github-copilot").unwrap());
         r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         assert_eq!(r.poll(), [Notice::say("Logged in to GitHub Copilot.")]);
-        assert_eq!(r.session.take_logged_in(), [Provider::builtin("github-copilot").unwrap()]);
-        assert_empty(r.session.take_logged_in());
-        assert!(!r.session.is_active());
+        assert_eq!(r.attempt.take_logged_in(), [Provider::builtin("github-copilot").unwrap()]);
+        assert_empty(r.attempt.take_logged_in());
+        assert!(!r.attempt.is_active());
     }
 
     #[test]
@@ -263,25 +263,25 @@ mod tests {
         r.start(&Provider::builtin("github-copilot").unwrap());
         r.worker.event(LoginEvent::Failed("device flow failed: access_denied".into()));
         assert_eq!(r.poll(), [Notice::fail("device flow failed: access_denied")]);
-        assert!(!r.session.is_active());
+        assert!(!r.attempt.is_active());
     }
 
     #[test]
     fn cancelling_stops_the_worker_and_ignores_what_the_login_still_sends() {
         let mut r = rig();
         r.start(&Provider::builtin("github-copilot").unwrap());
-        assert_eq!(r.session.cancel(), [Notice::say("Login cancelled.")]);
+        assert_eq!(r.attempt.cancel(), [Notice::say("Login cancelled.")]);
         assert_eq!(r.worker.cancelled(), 1);
-        assert!(!r.session.is_active());
+        assert!(!r.attempt.is_active());
 
         r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         assert_empty(r.poll());
     }
 
     #[test]
-    fn cancelling_an_idle_session_does_nothing() {
+    fn cancelling_an_idle_attempt_does_nothing() {
         let mut r = rig();
-        assert_empty(r.session.cancel());
+        assert_empty(r.attempt.cancel());
         assert_eq!(r.worker.cancelled(), 0);
     }
 
@@ -290,9 +290,9 @@ mod tests {
         let mut r = rig();
         r.start(&Provider::builtin("openai").unwrap());
         r.worker.event(LoginEvent::PromptSecret { message: "Paste".into() });
-        r.session.cancel();
+        r.attempt.cancel();
         assert_empty(r.poll());
-        assert!(!r.session.is_active() && !r.session.awaiting_secret());
+        assert!(!r.attempt.is_active() && !r.attempt.awaiting_secret());
     }
 
     #[test]
@@ -301,7 +301,7 @@ mod tests {
         r.worker.event(LoginEvent::Done(Provider::builtin("github-copilot").unwrap()));
         r.worker.event(LoginEvent::Failed("late".into()));
         assert_empty(r.poll());
-        assert_empty(r.session.take_logged_in());
+        assert_empty(r.attempt.take_logged_in());
     }
 
     #[test]
@@ -309,7 +309,7 @@ mod tests {
         let r = rig();
         r.store.write(&Provider::builtin("github-copilot").unwrap(), Credential::ApiKey { key: "k".into() }).unwrap();
         assert_eq!(
-            r.session.logout(&Provider::builtin("github-copilot").unwrap()),
+            r.attempt.logout(&Provider::builtin("github-copilot").unwrap()),
             [Notice::say("Logged out of GitHub Copilot.")]
         );
         assert!(r.store.read(&Provider::builtin("github-copilot").unwrap()).is_none());

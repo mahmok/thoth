@@ -38,13 +38,13 @@ pub trait Worker: Debug {
 }
 
 #[derive(Debug)]
-/// A refresh in progress.
-pub struct Session {
+/// A model refresh run in progress.
+pub struct ModelRefreshRun {
     running: bool,
     worker: Box<dyn Worker>,
 }
 
-impl Session {
+impl ModelRefreshRun {
     #[cfg(any(test, feature = "testing"))]
     #[must_use]
     #[inline]
@@ -142,17 +142,17 @@ mod tests {
     use crate::models::testing::store_with;
 
     struct Rig {
-        session: Session,
+        run: ModelRefreshRun,
         worker: Rc<ScriptedRefreshWorker>,
     }
 
     impl Rig {
         fn poll(&mut self) -> Vec<Notice> {
-            self.session.poll()
+            self.run.poll()
         }
 
         fn start(&mut self, providers: Vec<Provider>) -> Vec<Notice> {
-            self.session.start(providers)
+            self.run.start(providers)
         }
     }
 
@@ -237,8 +237,8 @@ mod tests {
 
     fn rig() -> Rig {
         let worker = ScriptedRefreshWorker::new();
-        let session = Session::new(Box::new(Rc::clone(&worker)));
-        Rig { session, worker }
+        let run = ModelRefreshRun::new(Box::new(Rc::clone(&worker)));
+        Rig { run, worker }
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod tests {
         let updates = r.start(providers.clone());
         assert_eq!(updates, [Notice::Say("Refreshing models...".into())]);
         assert_eq!(r.worker.started(), [providers]);
-        assert!(r.session.is_running());
+        assert!(r.run.is_running());
 
         r.worker.event(Event::Fetched { provider: Provider::builtin("ollama").unwrap(), count: 3 });
         r.worker.event(Event::Fetched { provider: Provider::builtin("openai").unwrap(), count: 1 });
@@ -268,7 +268,7 @@ mod tests {
                 Notice::Fail("Anthropic: failed (http error)".into()),
             ]
         );
-        assert!(!r.session.is_running());
+        assert!(!r.run.is_running());
     }
 
     #[test]

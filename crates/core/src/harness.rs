@@ -1,21 +1,21 @@
+use crate::agent::turn_runner::TokioTurnRunner;
 #[cfg(any(test, feature = "testing"))]
-use crate::agent::controller::Controller as AgentController;
-use crate::agent::controller::TokioAgent as TokioAgentController;
+use crate::agent::turn_runner::TurnRunner;
 use crate::agent_builder::AgentBuilder;
-use crate::auth::session::Login as LoginSession;
+use crate::auth::login::LoginAttempt;
 use crate::auth::store::{Credentials as CredentialStore, Source};
 use crate::builtin::files::{FileReferences, Suggestions};
 use crate::llm::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
 use crate::llm::thinking::Thinking;
 use crate::models::choices;
-use crate::models::refresh::Session as RefreshSession;
+use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::Models as ModelsStore;
 use crate::notice::Notice;
 use crate::persona::{Info as PersonaInfo, Repository as PersonaRepository};
 use crate::services::Services;
 use crate::session::Session;
 use crate::session::SessionId;
-use crate::session::event::Event as SessionEvent;
+use crate::session::event::SessionEvent;
 use crate::session::view::Login as LoginView;
 use crate::session::{LoginState, Refusal};
 use crate::transcript::Speaker;
@@ -42,7 +42,7 @@ impl From<Refusal> for UseCaseError {
 
 #[derive(Debug)]
 /// What a Harness reports to clients.
-pub enum Event {
+pub enum HarnessEvent {
     Login(LoginView),
     Notice { speaker: Speaker, text: String },
     Session { id: SessionId, event: SessionEvent },
@@ -57,11 +57,11 @@ pub struct Harness {
     files: Arc<FileReferences>,
     ids: ulid::Generator,
     login: LoginView,
-    logins: LoginSession,
+    logins: LoginAttempt,
     models: Arc<dyn ModelsStore>,
-    out: Vec<Event>,
+    out: Vec<HarnessEvent>,
     personas: Arc<PersonaRepository>,
-    refresh: RefreshSession,
+    refresh: ModelRefreshRun,
     sessions: BTreeMap<SessionId, Session>,
 }
 
@@ -164,7 +164,7 @@ impl Harness {
             return false;
         };
         session.cancel();
-        self.out.push(Event::SessionClosed(session_id));
+        self.out.push(HarnessEvent::SessionClosed(session_id));
         true
     }
 
@@ -181,7 +181,7 @@ impl Harness {
             return false;
         };
         let agent = Arc::new(Arc::clone(&self.builder).build_root(session_id, found, Arc::clone(&self.personas)));
-        let session = Session::new(session_id, Box::new(TokioAgentController::new(agent)));
+        let session = Session::new(session_id, Box::new(TokioTurnRunner::new(agent)));
         drop(self.sessions.insert(session_id, session));
         true
     }
@@ -259,7 +259,7 @@ impl Harness {
 
     #[inline]
     /// Collects what happened since the last poll: logins, refreshes and Sessions.
-    pub fn poll(&mut self) -> Vec<Event> {
+    pub fn poll(&mut self) -> Vec<HarnessEvent> {
         let notices = self.logins.poll();
         self.show(Speaker::Login, notices);
         for provider in self.logins.take_logged_in() {
@@ -274,7 +274,7 @@ impl Harness {
                 Some(session) => session.poll(),
                 None => continue,
             };
-            self.out.extend(events.into_iter().map(|event| Event::Session { id, event }));
+            self.out.extend(events.into_iter().map(|event| HarnessEvent::Session { id, event }));
         }
         self.sync_login();
         mem::take(&mut self.out)
@@ -320,7 +320,7 @@ impl Harness {
     }
 
     fn say(&mut self, speaker: Speaker, text: String) {
-        self.out.push(Event::Notice { speaker, text });
+        self.out.push(HarnessEvent::Notice { speaker, text });
     }
 
     #[must_use]
@@ -362,9 +362,9 @@ impl Harness {
 
     #[cfg(any(test, feature = "testing"))]
     #[inline]
-    /// Starts a Session with a given controller, for tests.
-    pub fn start_session_with(&mut self, session_id: SessionId, controller: Box<dyn AgentController>) {
-        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(session_id, controller));
+    /// Starts a Session with a given runner, for tests.
+    pub fn start_session_with(&mut self, session_id: SessionId, runner: Box<dyn TurnRunner>) {
+        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(session_id, runner));
     }
 
     #[inline]
@@ -409,7 +409,7 @@ impl Harness {
         };
         if login != self.login {
             self.login = login.clone();
-            self.out.push(Event::Login(login));
+            self.out.push(HarnessEvent::Login(login));
         }
     }
 

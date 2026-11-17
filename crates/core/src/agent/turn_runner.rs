@@ -1,4 +1,4 @@
-/// A test double for [`AgentController`]: records what it is asked and replies on demand.
+/// A test double for [`TurnRunner`]: records what it is asked and replies on demand.
 #[cfg(any(test, feature = "testing"))]
 pub mod scripted;
 
@@ -8,7 +8,7 @@ use core::fmt::Debug;
 use crate::background::Background;
 
 use crate::agent::skills::SkillSummary;
-use crate::agent::{Agent, Change as AgentChange, Event as AgentEvent, Settings};
+use crate::agent::{Agent, AgentChange, AgentEvent, Settings};
 use crate::llm::client::chat::Usage;
 
 #[derive(Debug)]
@@ -19,8 +19,8 @@ pub enum Reply {
     Failed(String),
 }
 
-/// Runs an Agent and hands back what it reports.
-pub trait Controller: Debug {
+/// Runs a Turn and hands back what it reports.
+pub trait TurnRunner: Debug {
     fn apply(&self, change: AgentChange);
     /// Compacts the Conversation, reporting through [`try_next`](Self::try_next) like a Turn.
     fn compact(&self, focus: Option<String>);
@@ -34,14 +34,14 @@ pub trait Controller: Debug {
     fn try_next(&self) -> Option<Reply>;
 }
 
-/// The [`AgentController`] that runs turns on the tokio runtime against a real [`Agent`].
+/// The [`TurnRunner`] that runs turns on the tokio runtime against a real [`Agent`].
 #[derive(Debug)]
-pub struct TokioAgent {
+pub struct TokioTurnRunner {
     agent: Arc<Agent>,
     turn: Background<Reply>,
 }
 
-impl TokioAgent {
+impl TokioTurnRunner {
     #[inline]
     pub fn new(agent: Arc<Agent>) -> Self {
         Self { agent, turn: Background::default() }
@@ -73,7 +73,7 @@ enum Work {
     Turn(String),
 }
 
-impl Controller for TokioAgent {
+impl TurnRunner for TokioTurnRunner {
     #[inline]
     fn apply(&self, change: AgentChange) {
         self.agent.apply(change);
@@ -115,22 +115,22 @@ mod tests {
     use core::time::Duration;
 
     use super::*;
-    use crate::agent::{Agent, Event as AgentEvent};
+    use crate::agent::{Agent, AgentEvent};
     use crate::auth::store::Credentials as CredentialStore;
     use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::any::Client as AnyClient;
     use crate::llm::client::error::Failure as ClientError;
     use crate::llm::client::fake;
     use crate::llm::client::fake::Client as FakeClient;
+    use crate::llm::client::protocol::ProtocolClient;
     use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use tokio::time;
 
-    fn controller(script: Vec<Result<StreamedCompletion, ClientError>>) -> TokioAgent {
+    fn runner(script: Vec<Result<StreamedCompletion, ClientError>>) -> TokioTurnRunner {
         let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
             .with_model(ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("m")))
-            .with_client(AnyClient::Fake(FakeClient::new(script)));
-        TokioAgent::new(Arc::new(agent))
+            .with_client(ProtocolClient::Fake(FakeClient::new(script)));
+        TokioTurnRunner::new(Arc::new(agent))
     }
 
     #[expect(
@@ -143,7 +143,7 @@ mod tests {
 
     /// Waits for the turn to end, returning every reply it produced.
     async fn run_turn(fail: bool) -> Vec<Reply> {
-        let link = controller(vec![if fail { Err(fake::failure()) } else { reply("hello") }]);
+        let link = runner(vec![if fail { Err(fake::failure()) } else { reply("hello") }]);
         link.start("hi".into());
 
         let mut replies = Vec::new();
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn settings_are_the_agents_and_changes_reach_it() {
-        let link = controller(Vec::new());
+        let link = runner(Vec::new());
         assert_eq!(link.settings().model.map(|m| m.model.id), Some("m".to_owned()));
         link.apply(AgentChange::SetThinking(Thinking::High));
         assert_eq!(link.settings().thinking, Thinking::High);

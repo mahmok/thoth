@@ -10,7 +10,7 @@ mod rendering;
 mod routing;
 
 use super::chat::ChatView;
-use super::client::Client;
+use super::client::TerminalClient;
 use super::picker::PickerHost;
 use super::popup::Popup;
 use super::prompt::{Prompt, Submission};
@@ -25,7 +25,7 @@ const TRIGGERS: &[char] = &[FILE_TRIGGER];
 /// The terminal app.
 pub struct TerminalApp {
     chat: ChatView,
-    harness: Client,
+    harness: TerminalClient,
     pickers: PickerHost,
     popup: Popup,
     prompt: Prompt,
@@ -37,7 +37,7 @@ pub struct TerminalApp {
 }
 
 impl TerminalApp {
-    pub fn new(harness: Client) -> Self {
+    pub fn new(harness: TerminalClient) -> Self {
         let mut prompt = Prompt::new();
         let seen_login = harness.login_view().clone();
         prompt.set_masked(seen_login.awaiting_secret);

@@ -1,10 +1,10 @@
 use super::stats::Stats;
 use crate::agent::Settings;
-use crate::transcript::Change as TranscriptChange;
+use crate::transcript::TranscriptChange;
 
 #[derive(Debug, Clone)]
 /// A change to a Session's view.
-pub enum Event {
+pub enum SessionEvent {
     /// The Agent started or stopped working.
     Busy(bool),
     /// The model or thinking level changed.

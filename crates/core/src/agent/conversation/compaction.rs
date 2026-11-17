@@ -3,10 +3,10 @@ use super::{Conversation, message_tokens};
 use crate::agent::context::Elision;
 use crate::agent::sub_agents::SubAgentInfo;
 use crate::agent::tools::tool::Outcome as ToolResult;
-use crate::agent::{Agent, COMPACTION_CALL_ID, Event as AgentEvent, Failure as AgentError};
-use crate::llm::client::any::Client as AnyClient;
+use crate::agent::{Agent, AgentEvent, COMPACTION_CALL_ID, Failure as AgentError};
 use crate::llm::client::chat::{Message, Role, Usage};
 use crate::llm::client::error::Failure as ClientError;
+use crate::llm::client::protocol::ProtocolClient;
 use crate::llm::client::{CreateCompletionRequest, Llm as _, StreamedCompletion, ToolChoice, ToolSpec};
 use core::fmt::Write as _;
 
@@ -59,7 +59,7 @@ impl Agent {
     /// Requests a summary, eliding everything first if the context overflows.
     async fn ask_for_summary(
         &self,
-        client: &AnyClient,
+        client: &ProtocolClient,
         conversation: &mut Conversation,
         cut: usize,
         instruction: &str,
@@ -117,7 +117,7 @@ impl Agent {
 
     async fn request_summary(
         &self,
-        client: &AnyClient,
+        client: &ProtocolClient,
         messages: &[Message],
         tool_choice: ToolChoice,
     ) -> Result<StreamedCompletion, ClientError> {
@@ -180,7 +180,7 @@ fn instruction(focus: Option<&str>, sub_agents: &[SubAgentInfo]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::context::{Budget as ContextBudget, Compaction, Context as AgentContext};
+    use crate::agent::context::{AgentContext, Budget as ContextBudget, Compaction};
     use crate::agent::tests::{build, text};
     use crate::llm::client::StreamedCompletion;
     use crate::llm::client::error::Failure as ClientError;

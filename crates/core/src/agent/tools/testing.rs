@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::tool::{Context as ToolContext, Outcome as ToolResult, Tool};
+use super::tool::{Outcome as ToolResult, Tool, ToolContext};
 use super::tool_set::ToolSet;
 
 pub(super) async fn run<T>(tool: T, args: Value) -> ToolResult

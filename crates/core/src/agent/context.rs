@@ -81,14 +81,14 @@ impl Compaction {
 
 #[derive(Default, Clone, Debug)]
 /// What an Agent knows before the first prompt.
-pub struct Context {
+pub struct AgentContext {
     agent_files: Vec<AgentFile>,
     budget: Budget,
     directory: PathBuf,
     system_prompt: String,
 }
 
-impl Context {
+impl AgentContext {
     #[must_use]
     #[inline]
     pub const fn budget(&self) -> &Budget {
@@ -244,14 +244,14 @@ mod tests {
     #[test]
     fn without_a_base_prompt_the_prompt_starts_with_the_working_directory() {
         let tree = TempTree::new("ctx-no-base");
-        let prompt = Context::new(tree.path()).get_combined_system_prompt();
+        let prompt = AgentContext::new(tree.path()).get_combined_system_prompt();
         assert!(prompt.starts_with(&format!("Current working directory: {}", tree.path().display())), "{prompt}");
     }
 
     #[test]
     fn without_agent_files_the_prompt_is_just_the_base() {
         let tree = TempTree::new("ctx-none");
-        let context = Context::new(tree.path()).with_system_prompt("base").with_agent_files().unwrap();
+        let context = AgentContext::new(tree.path()).with_system_prompt("base").with_agent_files().unwrap();
         assert_eq!(
             context.get_combined_system_prompt(),
             format!(
@@ -267,7 +267,7 @@ mod tests {
             .file("AGENTS.md", "root rules")
             .file("target/AGENTS.md", "generated")
             .file("node_modules/pkg/AGENTS.md", "vendored");
-        let context = Context::new(tree.path()).with_agent_files().unwrap();
+        let context = AgentContext::new(tree.path()).with_agent_files().unwrap();
         let prompt = context.get_combined_system_prompt();
         assert!(prompt.contains("root rules"), "{prompt}");
         assert!(!prompt.contains("generated") && !prompt.contains("vendored"), "{prompt}");
@@ -279,7 +279,7 @@ mod tests {
             .file("AGENTS.md", "root rules\n")
             .file("sub/AGENTS.md", "sub rules")
             .file("other/AGENTS.md", "unrelated");
-        let context = Context::new(tree.path()).with_system_prompt("base").with_agent_files().unwrap();
+        let context = AgentContext::new(tree.path()).with_system_prompt("base").with_agent_files().unwrap();
 
         // From the root, only the root's own instructions apply.
         let root_prompt = context.get_combined_system_prompt();
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn each_instruction_file_is_named_by_its_path_inside_a_project_context_block() {
         let tree = TempTree::new("ctx-format").file("AGENTS.md", "root rules\n");
-        let context = Context::new(tree.path()).with_agent_files().unwrap();
+        let context = AgentContext::new(tree.path()).with_agent_files().unwrap();
         let path = tree.path().join("AGENTS.md");
         let prompt = context.get_combined_system_prompt();
         let block = format!(
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn nested_files_each_get_their_own_tag() {
         let tree = TempTree::new("ctx-tags").file("AGENTS.md", "root").file("sub/AGENTS.md", "inner");
-        let context = Context::new(tree.path()).with_agent_files().unwrap();
+        let context = AgentContext::new(tree.path()).with_agent_files().unwrap();
         let text = context.get_instructions(&tree.path().join("sub"));
         assert_eq!(text.matches("<project_instructions path=").count(), 2, "{text}");
         assert_eq!(text.matches("<project_context>").count(), 1, "{text}");
