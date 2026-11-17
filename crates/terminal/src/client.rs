@@ -1,5 +1,5 @@
 use thoth_core::builtin::files::Suggestions;
-use thoth_core::harness::{Event, Harness, UseCaseError};
+use thoth_core::harness::{Harness, HarnessEvent, UseCaseError};
 use thoth_core::llm::provider::{ModelSpec, Provider};
 use thoth_core::llm::thinking::Thinking;
 use thoth_core::persona::Info as PersonaInfo;
@@ -119,7 +119,7 @@ impl TerminalClient {
     }
 
     /// What the harness has to report: logins, notices, session events and closes.
-    pub fn poll(&mut self) -> Vec<Event> {
+    pub fn poll(&mut self) -> Vec<HarnessEvent> {
         self.harness.poll()
     }
 

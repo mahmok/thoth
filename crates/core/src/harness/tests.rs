@@ -9,7 +9,7 @@ use tokio::time;
 
 use super::*;
 use crate::agent::COMPACTION_CALL_ID;
-use crate::agent::context::{Budget, Compaction, Context as AgentContext};
+use crate::agent::context::{AgentContext, Budget, Compaction};
 use crate::agent::skills::SkillSet;
 use crate::agent_builder::AgentBuilder;
 use crate::auth::login::LoginAttempt;

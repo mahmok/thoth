@@ -7,9 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::agent::tools::tool::{
-    Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits,
-};
+use crate::agent::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
 use crate::auth::testing::MockServer;
 use crate::llm::client::StreamedCompletion;
 use crate::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
@@ -113,7 +111,7 @@ fn the_model_can_be_switched() {
     let agent = build(vec![]).0;
     assert_eq!(agent.model(), Some(test_model()));
     let other = ModelSpec::new(Arc::new(Provider::builtin("openai").unwrap()), Model::new("gpt-4.1"));
-    agent.apply(Change::SetModel(other.clone()));
+    agent.apply(AgentChange::SetModel(other.clone()));
     assert_eq!(agent.model(), Some(other));
 }
 
@@ -131,7 +129,7 @@ async fn every_request_of_a_session_carries_its_id_across_a_model_switch() {
     let agent = Agent::new(Arc::new(CredentialStore::in_memory())).with_session_id(session).with_model(spec("first"));
 
     agent.respond("hi".into(), |_| {}).await.unwrap();
-    agent.apply(Change::SetModel(spec("second")));
+    agent.apply(AgentChange::SetModel(spec("second")));
     agent.respond("hi".into(), |_| {}).await.unwrap();
 
     let requests = server.requests();
@@ -146,9 +144,9 @@ async fn every_request_of_a_session_carries_its_id_across_a_model_switch() {
 fn settings_are_read_and_changed_together() {
     let agent = build(vec![text("a")]).0;
     assert_eq!(agent.settings(), Settings { model: Some(test_model()), thinking: Thinking::Medium });
-    agent.apply(Change::SetThinking(Thinking::Max));
+    agent.apply(AgentChange::SetThinking(Thinking::Max));
     let other = ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("other"));
-    agent.apply(Change::SetModel(other.clone()));
+    agent.apply(AgentChange::SetModel(other.clone()));
     assert_eq!(agent.settings(), Settings { model: Some(other), thinking: Thinking::Max });
 }
 

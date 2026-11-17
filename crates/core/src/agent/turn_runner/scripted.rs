@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 
 use super::{Reply, TurnRunner};
 use crate::agent::skills::SkillSummary;
-use crate::agent::{Change as AgentChange, Settings};
+use crate::agent::{AgentChange, Settings};
 use crate::llm::provider::{Model, ModelSpec, Provider};
 use crate::llm::thinking::Thinking;
 

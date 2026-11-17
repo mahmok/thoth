@@ -3,19 +3,19 @@ use alloc::sync::Arc;
 use core::mem;
 
 use super::*;
-use crate::agent::Event as AgentEvent;
+use crate::agent::AgentEvent;
 use crate::agent::tools::tool::Outcome as ToolResult;
 use crate::agent::turn_runner::scripted::ScriptedTurnRunner;
 use crate::auth::flow::LoginEvent;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::builtin::files::FileReferences;
-use crate::harness::{Event as HarnessEvent, Harness as CoreHarness, UseCaseError};
+use crate::harness::{Harness as CoreHarness, HarnessEvent, UseCaseError};
 use crate::llm::client::chat::Usage;
 use crate::llm::provider::Provider;
 use crate::llm::provider::{Model, ModelSpec, Protocol};
 use crate::llm::thinking::Thinking;
-use crate::models::model_refresh::Event as RefreshEvent;
+use crate::models::model_refresh;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::store::Models as ModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
@@ -463,11 +463,13 @@ fn refresh_models_starts_a_refresh_of_every_provider_and_reports_each_one() {
     assert_eq!(h.refresh_worker.started(), [Provider::builtins()]);
     assert_eq!(h.said_by(Speaker::Models), ["Refreshing models..."]);
 
-    h.refresh_worker.event(RefreshEvent::Fetched { provider: Provider::builtin("ollama").unwrap(), count: 3 });
-    h.refresh_worker.event(RefreshEvent::Skipped(Provider::builtin("github-copilot").unwrap()));
-    h.refresh_worker
-        .event(RefreshEvent::Failed { provider: Provider::builtin("openai").unwrap(), error: "http error".into() });
-    h.refresh_worker.event(RefreshEvent::Finished);
+    h.refresh_worker.event(model_refresh::Event::Fetched { provider: Provider::builtin("ollama").unwrap(), count: 3 });
+    h.refresh_worker.event(model_refresh::Event::Skipped(Provider::builtin("github-copilot").unwrap()));
+    h.refresh_worker.event(model_refresh::Event::Failed {
+        provider: Provider::builtin("openai").unwrap(),
+        error: "http error".into(),
+    });
+    h.refresh_worker.event(model_refresh::Event::Finished);
     h.poll();
     assert_eq!(
         h.said_by(Speaker::Models),
@@ -496,8 +498,8 @@ fn logging_in_refreshes_just_that_provider() {
     assert!(h.said_by(Speaker::Login).contains(&"Logged in to OpenAI.".to_owned()));
     assert_eq!(h.refresh_worker.started(), [vec![Provider::builtin("openai").unwrap()]]);
 
-    h.refresh_worker.event(RefreshEvent::Fetched { provider: Provider::builtin("openai").unwrap(), count: 18 });
-    h.refresh_worker.event(RefreshEvent::Finished);
+    h.refresh_worker.event(model_refresh::Event::Fetched { provider: Provider::builtin("openai").unwrap(), count: 18 });
+    h.refresh_worker.event(model_refresh::Event::Finished);
     h.poll();
     assert!(h.said_by(Speaker::Models).contains(&"OpenAI: 18 models".to_owned()));
 }

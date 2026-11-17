@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::agent::context::Context as AgentContext;
+use crate::agent::context::AgentContext;
 use crate::agent::delegation::Delegation;
 use crate::agent::skills::SkillSet;
 use crate::agent::sub_agents::SubAgents;
@@ -13,7 +13,7 @@ use crate::agent::tools;
 use crate::agent::tools::delegate::Delegate as DelegateTool;
 use crate::agent::tools::message::Messenger as MessageTool;
 use crate::agent::tools::tool_set::ToolSet;
-use crate::agent::{Agent, Change as AgentChange};
+use crate::agent::{Agent, AgentChange};
 use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::provider::ModelSpec;
 use crate::models::store::Models as ModelsStore;

@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 use std::env;
 use std::path::PathBuf;
 
-use crate::agent::context::Context as AgentContext;
+use crate::agent::context::AgentContext;
 use crate::agent::skills::SkillSet;
 use crate::agent_builder::AgentBuilder;
 use crate::auth::login::LoginAttempt;

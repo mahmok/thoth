@@ -1,4 +1,4 @@
-use super::tool::{Context, Description, Outcome, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Outcome, Tool, ToolContext, Traits as ToolTraits, blocking};
 use crate::agent::skills::SkillSet;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -28,7 +28,7 @@ impl Tool for InvokeSkill {
         })
     }
 
-    async fn run(&self, args: InvokeSkillArgs, cx: &Context) -> Outcome {
+    async fn run(&self, args: InvokeSkillArgs, cx: &ToolContext) -> Outcome {
         let skill_set = cx.skill_set.clone();
         blocking(move || get_skill_block(&skill_set, &args.name)).await
     }
@@ -77,12 +77,12 @@ mod tests {
         InvokeSkill::default()
     }
 
-    fn context() -> Context {
+    fn context() -> ToolContext {
         let mut skill_set = SkillSet::default();
         skill_set.push(skill_a());
         skill_set.push(skill_b());
         let (progress, _) = unbounded_channel();
-        Context::new("detached", CancellationToken::new(), Settings::default(), progress, skill_set)
+        ToolContext::new("detached", CancellationToken::new(), Settings::default(), progress, skill_set)
     }
 
     #[tokio::test]

@@ -12,8 +12,8 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::delegation::Delegation;
-use crate::agent::tools::tool::{Context as ToolContext, Outcome as ToolResult};
-use crate::agent::{Agent, Change as AgentChange, Failure as AgentError, Settings};
+use crate::agent::tools::tool::{Outcome as ToolResult, ToolContext};
+use crate::agent::{Agent, AgentChange, Failure as AgentError, Settings};
 use crate::persona::Persona;
 use crate::sync::MutexExt as _;
 use crate::transcript::Observed;

@@ -11,12 +11,12 @@ use crate::llm::provider::ModelSpec;
 use crate::llm::thinking::Thinking;
 use core::mem;
 
-use crate::agent::Change as AgentChange;
+use crate::agent::AgentChange;
 use crate::agent::skills::SkillSummary;
 use crate::agent::turn_runner::{Reply, TurnRunner};
-use crate::transcript::{Change as TranscriptChange, Speaker};
+use crate::transcript::{Speaker, TranscriptChange};
 
-use event::Event as SessionEvent;
+use event::SessionEvent;
 pub use id::SessionId;
 use stats::Stats;
 use view::View;

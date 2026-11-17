@@ -10,13 +10,11 @@ use serde_json::{Value, json};
 use tokio::time;
 
 use super::*;
-use crate::agent::context::{Budget, Context as AgentContext};
+use crate::agent::context::{AgentContext, Budget};
 use crate::agent::tests::{Echo, EchoArgs, build, call, calls, test_model, text};
-use crate::agent::tools::tool::{
-    Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits,
-};
+use crate::agent::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
 use crate::agent::tools::tool_set::ToolSet;
-use crate::agent::{Change, DEFAULT_MAX_STEPS};
+use crate::agent::{AgentChange, DEFAULT_MAX_STEPS};
 use crate::auth::store::Credentials as CredentialStore;
 use crate::llm::client::chat::Role;
 use crate::llm::client::error::Failure as ClientError;
@@ -235,14 +233,16 @@ fn with_peek(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, Fa
 }
 
 /// The tool events, each as its kind and the id of its call.
-fn tool_events(events: &[Event]) -> Vec<String> {
+fn tool_events(events: &[AgentEvent]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match *event {
-            Event::ToolStarted { ref id, .. } => Some(format!("start {id}")),
-            Event::ToolProgress { ref id, ref status } => Some(format!("progress {id} {status}")),
-            Event::ToolFinished { ref id, .. } => Some(format!("finish {id}")),
-            Event::Text(_) | Event::Reasoning(_) | Event::StepStarted { .. } | Event::Notice(_) => None,
+            AgentEvent::ToolStarted { ref id, .. } => Some(format!("start {id}")),
+            AgentEvent::ToolProgress { ref id, ref status } => Some(format!("progress {id} {status}")),
+            AgentEvent::ToolFinished { ref id, .. } => Some(format!("finish {id}")),
+            AgentEvent::Text(_) | AgentEvent::Reasoning(_) | AgentEvent::StepStarted { .. } | AgentEvent::Notice(_) => {
+                None
+            },
         })
         .collect()
 }
@@ -268,14 +268,14 @@ async fn runs_a_tool_then_answers() {
     let response = agent.respond("say hi".into(), |e| events.push(e)).await.unwrap();
 
     assert_eq!(response.message.text.unwrap(), "done");
-    let shown: Vec<Event> = events.into_iter().filter(|e| !matches!(e, Event::StepStarted { .. })).collect();
-    assert!(matches!(&shown[0], Event::ToolStarted { summary, .. } if summary == "echo(hi)"));
+    let shown: Vec<AgentEvent> = events.into_iter().filter(|e| !matches!(e, AgentEvent::StepStarted { .. })).collect();
+    assert!(matches!(&shown[0], AgentEvent::ToolStarted { summary, .. } if summary == "echo(hi)"));
     assert!(matches!(
         &shown[1],
-        Event::ToolFinished { summary, result, .. }
+        AgentEvent::ToolFinished { summary, result, .. }
             if summary == "echo(hi)" && *result == ToolResult::ok("echo: hi")
     ));
-    assert!(matches!(&shown[2], Event::Text(t) if t == "done"));
+    assert!(matches!(&shown[2], AgentEvent::Text(t) if t == "done"));
 
     assert_eq!(roles(&agent).await, [Role::User, Role::Assistant, Role::Tool, Role::Assistant]);
     let conversation = agent.conversation.lock().await;
@@ -315,14 +315,14 @@ async fn unknown_tools_and_bad_arguments_reach_the_model_as_errors() {
     let errors: Vec<&ToolResult> = events
         .iter()
         .filter_map(|e| match *e {
-            Event::ToolFinished { ref result, .. } if result.is_error => Some(result),
-            Event::Text(_)
-            | Event::Reasoning(_)
-            | Event::StepStarted { .. }
-            | Event::ToolStarted { .. }
-            | Event::ToolProgress { .. }
-            | Event::Notice(_)
-            | Event::ToolFinished { .. } => None,
+            AgentEvent::ToolFinished { ref result, .. } if result.is_error => Some(result),
+            AgentEvent::Text(_)
+            | AgentEvent::Reasoning(_)
+            | AgentEvent::StepStarted { .. }
+            | AgentEvent::ToolStarted { .. }
+            | AgentEvent::ToolProgress { .. }
+            | AgentEvent::Notice(_)
+            | AgentEvent::ToolFinished { .. } => None,
         })
         .collect();
     assert_eq!(errors.len(), 2);
@@ -438,7 +438,7 @@ async fn the_estimate_is_corrected_by_the_tokens_the_provider_counted() {
     assert_eq!(Load::new(100, 0).tokens(agent.calibration()), 100, "no correction before any request");
     agent.respond("hi".into(), |_| {}).await.unwrap();
     assert_eq!(Load::new(100, 0).tokens(agent.calibration()), 300, "the ratio is capped at 3");
-    agent.apply(Change::SetModel(test_model()));
+    agent.apply(AgentChange::SetModel(test_model()));
     assert_eq!(Load::new(100, 0).tokens(agent.calibration()), 100, "another model starts afresh");
 }
 
@@ -511,7 +511,7 @@ async fn each_model_call_starts_a_numbered_step() {
     let mut steps = Vec::new();
     agent
         .respond("go".into(), |e| {
-            if let Event::StepStarted { step } = e {
+            if let AgentEvent::StepStarted { step } = e {
                 steps.push(step);
             }
         })
@@ -551,7 +551,7 @@ async fn a_reply_cut_off_after_some_text_is_kept_with_a_notice() {
     let mut events = Vec::new();
     let response = agent.respond("hi".into(), |e| events.push(e)).await.unwrap();
     assert_eq!(response.message.text.as_deref(), Some("half an ans"));
-    assert!(matches!(events.last(), Some(Event::Notice(n)) if n.contains("continue")));
+    assert!(matches!(events.last(), Some(AgentEvent::Notice(n)) if n.contains("continue")));
     assert_eq!(roles(&agent).await, [Role::User, Role::Assistant]);
 }
 
@@ -590,7 +590,7 @@ async fn a_request_that_is_too_long_is_retried_once_with_old_tool_output_elided(
     agent.respond("second".into(), |e| events.push(e)).await.unwrap();
 
     assert_eq!(fake.requests().len(), 4);
-    assert!(events.iter().any(|e| matches!(e, Event::Notice(_))));
+    assert!(events.iter().any(|e| matches!(e, AgentEvent::Notice(_))));
     let conversation = agent.conversation.lock().await;
     let result = conversation.messages()[2].content.as_deref().unwrap();
     assert!(result.starts_with(r#"{"elided""#), "{result}");

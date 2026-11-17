@@ -18,7 +18,7 @@ pub mod turn_runner;
 pub mod types;
 
 use crate::agent::budget::ContextBudget;
-use crate::agent::context::{Budget, Context as AgentContext};
+use crate::agent::context::{AgentContext, Budget};
 use crate::agent::delegation::Delegation;
 use crate::agent::skills::SkillSet;
 use crate::agent::sub_agents::SubAgents;
@@ -53,7 +53,7 @@ pub const COMPACTION_CALL_ID: &str = "compaction";
 
 #[derive(Debug, Clone)]
 /// Something an Agent reports while it works.
-pub enum Event {
+pub enum AgentEvent {
     /// Something the user should know about the turn that is not the model's own words.
     Notice(String),
     /// A fragment of the model's thinking, shown apart from the reply.
@@ -101,14 +101,14 @@ pub struct Settings {
 
 #[derive(Debug)]
 /// A change to apply to an Agent.
-pub enum Change {
+pub enum AgentChange {
     /// Forget the conversation.
     ClearConversation,
     /// Stop the running turn.
     Interrupt,
     /// Switch to this model.
     SetModel(ModelSpec),
-    /// Change the thinking level.
+    /// AgentChange the thinking level.
     SetThinking(Thinking),
 }
 
@@ -202,14 +202,14 @@ pub struct Agent {
 impl Agent {
     #[inline]
     /// Applies a change that was queued for the Agent.
-    pub fn apply(&self, change: Change) {
+    pub fn apply(&self, change: AgentChange) {
         match change {
-            Change::SetModel(spec) => self.set_model(spec),
-            Change::SetThinking(thinking) => self.set_thinking(thinking),
-            Change::ClearConversation => {
+            AgentChange::SetModel(spec) => self.set_model(spec),
+            AgentChange::SetThinking(thinking) => self.set_thinking(thinking),
+            AgentChange::ClearConversation => {
                 let _cleared = self.clear_conversation();
             },
-            Change::Interrupt => self.interrupt(),
+            AgentChange::Interrupt => self.interrupt(),
         }
     }
 
@@ -245,7 +245,7 @@ impl Agent {
     #[expect(clippy::significant_drop_tightening, reason = "the guard is deliberately held for the whole operation")]
     pub async fn compact<F>(&self, focus: Option<String>, mut on_event: F) -> Result<Option<Usage>, Failure>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         if !self.budget.compacts() {
             return Err(Failure::Compaction("compaction is turned off"));
@@ -255,7 +255,7 @@ impl Agent {
         let compaction = self.compact_conversation(&mut conversation, 0, focus.as_deref(), &mut on_event);
         match until(&cancelled, compaction).await {
             Err(Failure::NothingToCompact) => {
-                on_event(Event::ToolFinished {
+                on_event(AgentEvent::ToolFinished {
                     id: COMPACTION_CALL_ID.into(),
                     summary: "compact conversation".into(),
                     result: ToolResult::ok("Nothing to compact yet: only the latest turn is there."),

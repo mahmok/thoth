@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use super::shell::{self, Shell, ShellArgs};
-use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool};
+use super::tool::{Description, Outcome as ToolResult, Tool, ToolContext};
 use crate::workspace::Workspace;
 
 /// The shell the `powershell` Tool runs commands in.

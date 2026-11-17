@@ -80,7 +80,7 @@ impl Traits {
 /// Settings, and a way to show progress on the call's card.
 #[derive(Debug)]
 #[expect(clippy::partial_pub_fields, reason = "the private fields keep the invariants of the type")]
-pub struct Context {
+pub struct ToolContext {
     call_id: String,
     pub cancel: CancellationToken,
     progress: UnboundedSender<ProgressReport>,
@@ -95,7 +95,7 @@ pub struct ProgressReport {
     pub status: String,
 }
 
-impl Context {
+impl ToolContext {
     #[must_use]
     #[inline]
     pub fn call_id(&self) -> &str {
@@ -155,7 +155,7 @@ pub trait Tool: Debug + Send + Sync + 'static {
     /// JSON schema of the arguments, as shown to the model.
     fn parameters(&self) -> Value;
 
-    fn run(&self, args: Self::Args, cx: &Context) -> impl Future<Output = Outcome> + Send;
+    fn run(&self, args: Self::Args, cx: &ToolContext) -> impl Future<Output = Outcome> + Send;
 
     /// A short description of one call, for showing it to the user.
     fn summary(&self, args: &Self::Args) -> String;
@@ -178,7 +178,7 @@ pub(super) trait ErasedTool: Debug + Send + Sync {
     fn call<'call>(
         &'call self,
         raw_arguments: &'call str,
-        cx: &'call Context,
+        cx: &'call ToolContext,
     ) -> Pin<Box<dyn Future<Output = Outcome> + Send + 'call>>;
     fn describe_call(&self, raw_arguments: &str) -> String;
     fn spec(&self) -> ToolSpec;
@@ -198,7 +198,7 @@ impl<T: Tool> ErasedTool for T {
     fn call<'call>(
         &'call self,
         raw_arguments: &'call str,
-        cx: &'call Context,
+        cx: &'call ToolContext,
     ) -> Pin<Box<dyn Future<Output = Outcome> + Send + 'call>> {
         Box::pin(async move {
             let schema = self.parameters();

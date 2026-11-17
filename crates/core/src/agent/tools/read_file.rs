@@ -2,7 +2,7 @@ use core::fmt::Write as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits, blocking};
 use crate::workspace::{MAX_READ_BYTES, ReadPolicy, Workspace, truncate};
 
 /// The largest file `read_file` loads. It is read whole before being cut to what the model may see.

@@ -9,7 +9,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use similar::TextDiff;
 
-use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, blocking};
+use super::tool::{Description, Outcome as ToolResult, Tool, ToolContext, blocking};
 use crate::workspace::{Workspace, truncate};
 
 /// Lines of context around a change in the diff.

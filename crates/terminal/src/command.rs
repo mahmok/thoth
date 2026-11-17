@@ -359,8 +359,8 @@ mod tests {
     use alloc::rc::Rc;
     use thoth_core::agent::turn_runner::Reply;
     use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
-    use thoth_core::harness::Event as HarnessEvent;
     use thoth_core::harness::Harness;
+    use thoth_core::harness::HarnessEvent;
     use thoth_core::models::testing::fixture;
     use thoth_core::test::assert_empty;
     use thoth_core::test::scripted::Scripted;

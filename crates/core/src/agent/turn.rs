@@ -12,11 +12,11 @@ use tokio::select;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use tokio_util::sync::CancellationToken;
 
-use super::{Agent, Event, Failure, Settings, until};
+use super::{Agent, AgentEvent, Failure, Settings, until};
 use crate::agent::budget::{Decision, Load, Request};
 use crate::agent::context::Elision;
 use crate::agent::conversation::{Conversation, Turn};
-use crate::agent::tools::tool::{Context as ToolContext, Outcome as ToolResult, ProgressReport};
+use crate::agent::tools::tool::{Outcome as ToolResult, ProgressReport, ToolContext};
 use crate::agent::types::{AgentMessage, AgentResponse};
 use crate::llm::client::chat::{ToolCall, Usage};
 use crate::llm::client::{CreateCompletionRequest, Delta, Llm as _, StreamedCompletion, ToolChoice, ToolSpec};
@@ -36,7 +36,7 @@ impl Agent {
     /// Fails if no model is chosen, the model request fails, the turn is interrupted or it runs out of steps.
     pub async fn respond<F>(&self, prompt: String, on_event: F) -> Result<AgentResponse, Failure>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         self.respond_under(&CancellationToken::new(), prompt, on_event).await
     }
@@ -57,7 +57,7 @@ impl Agent {
         mut on_event: F,
     ) -> Result<AgentResponse, Failure>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         drop(self.client()?);
         // Registered before waiting for the Conversation, so an interrupt during the wait counts.
@@ -115,7 +115,7 @@ impl Agent {
         mut on_event: F,
     ) -> Result<AgentResponse, Failure>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         // The calls that failed in this Turn, to notice the model repeating one.
         let mut failed: HashSet<(String, String)> = HashSet::new();
@@ -125,7 +125,7 @@ impl Agent {
             if cancel.is_cancelled() {
                 return Err(Failure::Interrupted);
             }
-            on_event(Event::StepStarted { step });
+            on_event(AgentEvent::StepStarted { step });
             self.trim(turn);
             let sent = self.load(turn.estimated_tokens(), 0).raw();
             // The last step must answer in text, so the Turn ends with a reply that says what was
@@ -139,7 +139,9 @@ impl Agent {
 
             if completion.tool_calls.is_empty() {
                 if let Some(reason) = completion.cut_off.as_ref() {
-                    on_event(Event::Notice(format!("the reply was cut off ({reason}); say \"continue\" to go on")));
+                    on_event(AgentEvent::Notice(format!(
+                        "the reply was cut off ({reason}); say \"continue\" to go on"
+                    )));
                 }
                 let message = AgentMessage::new(Some(completion.text), completion.reasoning);
                 turn.complete(message.clone());
@@ -200,7 +202,7 @@ impl Agent {
         on_event: &mut F,
     ) -> Vec<ToolResult>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         let (progress, mut reports) = unbounded_channel();
         let context = |call: &ToolCall| {
@@ -242,7 +244,7 @@ impl Agent {
         on_event: &mut F,
     ) -> Result<Option<Usage>, Failure>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         let limit = self.model().and_then(|model| model.context_limit());
         // The prompt counts: a large one, with files attached, is part of the next request.
@@ -281,7 +283,7 @@ impl Agent {
         on_event: &mut F,
     ) -> Result<StreamedCompletion, Failure>
     where
-        F: FnMut(Event) + Send,
+        F: FnMut(AgentEvent) + Send,
     {
         let mut recovered = false;
         loop {
@@ -296,15 +298,15 @@ impl Agent {
                         tool_choice,
                     },
                     |delta| match delta {
-                        Delta::Text(text) => on_event(Event::Text(text.to_owned())),
-                        Delta::Reasoning(text) => on_event(Event::Reasoning(text.to_owned())),
+                        Delta::Text(text) => on_event(AgentEvent::Text(text.to_owned())),
+                        Delta::Reasoning(text) => on_event(AgentEvent::Reasoning(text.to_owned())),
                     },
                 )
                 .await;
             match result {
                 Err(e) if !recovered && e.is_context_overflow() && turn.elide(&Elision::EVERYTHING) => {
                     recovered = true;
-                    on_event(Event::Notice(
+                    on_event(AgentEvent::Notice(
                         "the conversation was too long: dropped old tool output and retrying".into(),
                     ));
                 },
@@ -331,12 +333,12 @@ fn add_usage(total: Option<Usage>, step: Option<Usage>) -> Option<Usage> {
     }
 }
 
-fn started(call: &ToolCall, summary: &str) -> Event {
-    Event::ToolStarted { id: call.id.clone(), summary: summary.to_owned() }
+fn started(call: &ToolCall, summary: &str) -> AgentEvent {
+    AgentEvent::ToolStarted { id: call.id.clone(), summary: summary.to_owned() }
 }
 
-fn finish(call: &ToolCall, summary: &str, result: &ToolResult) -> Event {
-    Event::ToolFinished { id: call.id.clone(), summary: summary.to_owned(), result: result.clone() }
+fn finish(call: &ToolCall, summary: &str, result: &ToolResult) -> AgentEvent {
+    AgentEvent::ToolFinished { id: call.id.clone(), summary: summary.to_owned(), result: result.clone() }
 }
 
 /// Runs `work` to the end, passing on the progress its Tool calls report while it runs.
@@ -346,7 +348,7 @@ async fn pump<T, F>(
     on_event: &mut F,
 ) -> T
 where
-    F: FnMut(Event),
+    F: FnMut(AgentEvent),
 {
     tokio::pin!(work);
     let output = loop {
@@ -362,8 +364,8 @@ where
     output
 }
 
-fn progress(report: ProgressReport) -> Event {
-    Event::ToolProgress { id: report.call_id, status: report.status }
+fn progress(report: ProgressReport) -> AgentEvent {
+    AgentEvent::ToolProgress { id: report.call_id, status: report.status }
 }
 
 #[cfg(test)]

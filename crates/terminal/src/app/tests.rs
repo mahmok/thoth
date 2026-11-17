@@ -3,7 +3,7 @@ use core::time::Duration;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::style::Color;
-use thoth_core::agent::Event as AgentEvent;
+use thoth_core::agent::AgentEvent;
 use thoth_core::agent::tools::tool::Outcome as ToolResult;
 use thoth_core::agent::turn_runner::Reply;
 use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;

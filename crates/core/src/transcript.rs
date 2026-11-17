@@ -1,7 +1,7 @@
 /// A Tool call card.
 pub mod tool_call;
 
-use crate::agent::Event as AgentEvent;
+use crate::agent::AgentEvent;
 use crate::agent::tools::tool::Outcome as ToolResult;
 use crate::auth::credential::now_ms;
 
@@ -48,7 +48,7 @@ pub struct Item {
 
 #[derive(Debug, Clone)]
 /// A change to the transcript.
-pub enum Change {
+pub enum TranscriptChange {
     /// An item was added.
     Added(Item),
     /// Text was added to a message.
@@ -131,7 +131,7 @@ impl Transcript {
     /// for a card that has already finished).
     #[must_use]
     #[inline]
-    pub fn agent_event(&self, event: AgentEvent) -> Option<Change> {
+    pub fn agent_event(&self, event: AgentEvent) -> Option<TranscriptChange> {
         Some(match Observed::of(event) {
             Observed::Text(delta) => self.streamed(Speaker::Agent, delta),
             Observed::Reasoning(delta) => self.streamed(Speaker::Thinking, delta),
@@ -139,7 +139,7 @@ impl Transcript {
             Observed::Step(_) => return None,
             Observed::ToolStarted { id, summary } => {
                 let call = ToolCall::running(id, summary, now_ms());
-                Change::Added(self.new_item(Content::Tool(call)))
+                TranscriptChange::Added(self.new_item(Content::Tool(call)))
             },
             Observed::ToolProgress { id, status } => return self.tool_progress(&id, status),
             Observed::ToolFinished { id, summary, result } => self.tool_finished(&id, summary, &result),
@@ -148,13 +148,13 @@ impl Transcript {
 
     #[inline]
     /// Applies a change a Session sent, keeping the transcript in step.
-    pub fn apply(&mut self, change: &Change) {
+    pub fn apply(&mut self, change: &TranscriptChange) {
         match *change {
-            Change::Added(ref item) => {
+            TranscriptChange::Added(ref item) => {
                 self.next_id = self.next_id.max(item.id.saturating_add(1));
                 self.items.push(item.clone());
             },
-            Change::Appended { id, revision, ref text } => {
+            TranscriptChange::Appended { id, revision, ref text } => {
                 if let Some(item) = self.find_mut(id)
                     && let Content::Message(ref mut message) = item.content
                 {
@@ -162,12 +162,12 @@ impl Transcript {
                     item.revision = revision;
                 }
             },
-            Change::Replaced(ref replacement) => {
+            TranscriptChange::Replaced(ref replacement) => {
                 if let Some(item) = self.find_mut(replacement.id) {
                     *item = replacement.clone();
                 }
             },
-            Change::Cleared => self.items.clear(),
+            TranscriptChange::Cleared => self.items.clear(),
         }
     }
 
@@ -200,13 +200,17 @@ impl Transcript {
     /// The running card for `call_id`, changed by `change`. The card is replaced whole, with a
     /// new revision, so a client redraws it.
     #[expect(clippy::unreachable, reason = "only Tool cards are looked up by call id")]
-    fn replace_card(item: &Item, change: impl FnOnce(&mut ToolCall)) -> Change {
+    fn replace_card(item: &Item, change: impl FnOnce(&mut ToolCall)) -> TranscriptChange {
         let mut call = match item.content {
             Content::Tool(ref call) => call.clone(),
             Content::Message(_) => unreachable!("only Tool cards are looked up by call id"),
         };
         change(&mut call);
-        Change::Replaced(Item { id: item.id, revision: item.revision.saturating_add(1), content: Content::Tool(call) })
+        TranscriptChange::Replaced(Item {
+            id: item.id,
+            revision: item.revision.saturating_add(1),
+            content: Content::Tool(call),
+        })
     }
 
     /// The running card for call `call_id`, if there is one.
@@ -218,24 +222,24 @@ impl Transcript {
     }
 
     #[inline]
-    pub fn said<IntoString>(&self, speaker: Speaker, text: IntoString) -> Change
+    pub fn said<IntoString>(&self, speaker: Speaker, text: IntoString) -> TranscriptChange
     where
         IntoString: Into<String>,
     {
-        Change::Added(self.new_item(Content::Message(Message { speaker, text: text.into() })))
+        TranscriptChange::Added(self.new_item(Content::Message(Message { speaker, text: text.into() })))
     }
 
-    fn streamed(&self, speaker: Speaker, delta: String) -> Change {
+    fn streamed(&self, speaker: Speaker, delta: String) -> TranscriptChange {
         match self.items.last() {
             Some(item) if matches!(&item.content, Content::Message(m) if m.speaker == speaker) => {
-                Change::Appended { id: item.id, revision: item.revision.saturating_add(1), text: delta }
+                TranscriptChange::Appended { id: item.id, revision: item.revision.saturating_add(1), text: delta }
             },
             _ => self.said(speaker, delta),
         }
     }
 
     #[expect(clippy::option_if_let_else, reason = "both branches consume `finish`")]
-    fn tool_finished(&self, call_id: &str, summary: String, result: &ToolResult) -> Change {
+    fn tool_finished(&self, call_id: &str, summary: String, result: &ToolResult) -> TranscriptChange {
         let now = now_ms();
         let finish = |call: &mut ToolCall| call.finish(now, result.is_error, &result.content);
         if let Some(item) = self.running_card(call_id) {
@@ -243,11 +247,11 @@ impl Transcript {
         } else {
             let mut call = ToolCall::running(call_id, summary, now);
             finish(&mut call);
-            Change::Added(self.new_item(Content::Tool(call)))
+            TranscriptChange::Added(self.new_item(Content::Tool(call)))
         }
     }
 
-    fn tool_progress(&self, call_id: &str, status: String) -> Option<Change> {
+    fn tool_progress(&self, call_id: &str, status: String) -> Option<TranscriptChange> {
         let item = self.running_card(call_id)?;
         Some(Self::replace_card(item, |call| call.progress = Some(status)))
     }
@@ -429,7 +433,7 @@ mod tests {
         let mut transcript = Transcript::default();
         say(&mut transcript, Speaker::You, "a");
         let first = transcript.items()[0].id;
-        transcript.apply(&Change::Cleared);
+        transcript.apply(&TranscriptChange::Cleared);
         say(&mut transcript, Speaker::You, "b");
         assert_ne!(transcript.items()[0].id, first);
     }

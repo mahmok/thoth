@@ -11,7 +11,7 @@ use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::workspace::Workspace;
 
-use crate::agent::context::Context as AgentContext;
+use crate::agent::context::AgentContext;
 use crate::agent::skills::SkillSet;
 use crate::agent::turn_runner::scripted::ScriptedTurnRunner;
 use crate::agent_builder::AgentBuilder;

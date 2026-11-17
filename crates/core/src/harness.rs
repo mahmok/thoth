@@ -15,7 +15,7 @@ use crate::persona::{Info as PersonaInfo, Repository as PersonaRepository};
 use crate::services::Services;
 use crate::session::Session;
 use crate::session::SessionId;
-use crate::session::event::Event as SessionEvent;
+use crate::session::event::SessionEvent;
 use crate::session::view::Login as LoginView;
 use crate::session::{LoginState, Refusal};
 use crate::transcript::Speaker;
@@ -42,7 +42,7 @@ impl From<Refusal> for UseCaseError {
 
 #[derive(Debug)]
 /// What a Harness reports to clients.
-pub enum Event {
+pub enum HarnessEvent {
     Login(LoginView),
     Notice { speaker: Speaker, text: String },
     Session { id: SessionId, event: SessionEvent },
@@ -59,7 +59,7 @@ pub struct Harness {
     login: LoginView,
     logins: LoginAttempt,
     models: Arc<dyn ModelsStore>,
-    out: Vec<Event>,
+    out: Vec<HarnessEvent>,
     personas: Arc<PersonaRepository>,
     refresh: ModelRefreshRun,
     sessions: BTreeMap<SessionId, Session>,
@@ -164,7 +164,7 @@ impl Harness {
             return false;
         };
         session.cancel();
-        self.out.push(Event::SessionClosed(session_id));
+        self.out.push(HarnessEvent::SessionClosed(session_id));
         true
     }
 
@@ -259,7 +259,7 @@ impl Harness {
 
     #[inline]
     /// Collects what happened since the last poll: logins, refreshes and Sessions.
-    pub fn poll(&mut self) -> Vec<Event> {
+    pub fn poll(&mut self) -> Vec<HarnessEvent> {
         let notices = self.logins.poll();
         self.show(Speaker::Login, notices);
         for provider in self.logins.take_logged_in() {
@@ -274,7 +274,7 @@ impl Harness {
                 Some(session) => session.poll(),
                 None => continue,
             };
-            self.out.extend(events.into_iter().map(|event| Event::Session { id, event }));
+            self.out.extend(events.into_iter().map(|event| HarnessEvent::Session { id, event }));
         }
         self.sync_login();
         mem::take(&mut self.out)
@@ -320,7 +320,7 @@ impl Harness {
     }
 
     fn say(&mut self, speaker: Speaker, text: String) {
-        self.out.push(Event::Notice { speaker, text });
+        self.out.push(HarnessEvent::Notice { speaker, text });
     }
 
     #[must_use]
@@ -409,7 +409,7 @@ impl Harness {
         };
         if login != self.login {
             self.login = login.clone();
-            self.out.push(Event::Login(login));
+            self.out.push(HarnessEvent::Login(login));
         }
     }
 

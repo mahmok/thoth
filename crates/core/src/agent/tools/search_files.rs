@@ -7,7 +7,7 @@ use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Context as ToolContext, Description, Outcome as ToolResult, Tool, Traits as ToolTraits, blocking};
+use super::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits, blocking};
 use super::walk::{MAX_DEPTH, PathFilter, walk};
 use crate::workspace::{Workspace, current_dir};
 

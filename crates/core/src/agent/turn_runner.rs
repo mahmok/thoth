@@ -8,7 +8,7 @@ use core::fmt::Debug;
 use crate::background::Background;
 
 use crate::agent::skills::SkillSummary;
-use crate::agent::{Agent, Change as AgentChange, Event as AgentEvent, Settings};
+use crate::agent::{Agent, AgentChange, AgentEvent, Settings};
 use crate::llm::client::chat::Usage;
 
 #[derive(Debug)]
@@ -115,7 +115,7 @@ mod tests {
     use core::time::Duration;
 
     use super::*;
-    use crate::agent::{Agent, Event as AgentEvent};
+    use crate::agent::{Agent, AgentEvent};
     use crate::auth::store::Credentials as CredentialStore;
     use crate::llm::client::StreamedCompletion;
     use crate::llm::client::error::Failure as ClientError;
