@@ -1,23 +1,23 @@
 use alloc::rc::Rc;
 use alloc::sync::Arc;
 
-use crate::auth::credential::Credential;
-use crate::auth::login::LoginAttempt;
-use crate::auth::store::Credentials as CredentialStore;
-use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
-use crate::llm::provider::Provider;
-use crate::models::model_refresh::ModelRefreshRun;
-use crate::models::store::InMemory as InMemoryModelsStore;
-use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
-use crate::workspace::Workspace;
+use crate::adapters::auth::credential::Credential;
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::auth::testing::scripted::Worker as ScriptedLoginWorker;
+use crate::adapters::models::store::InMemory as InMemoryModelsStore;
+use crate::adapters::models::testing::scripted::Worker as ScriptedRefreshWorker;
+use crate::adapters::workspace::Workspace;
+use crate::application::login::LoginAttempt;
+use crate::application::model_refresh::ModelRefreshRun;
+use crate::domain::provider::Provider;
 
-use crate::agent::context::AgentContext;
-use crate::agent::skills::SkillSet;
-use crate::agent::turn_runner::scripted::ScriptedTurnRunner;
-use crate::agent_builder::AgentBuilder;
-use crate::builtin::files::FileReferences;
-use crate::persona::Repository as PersonaRepository;
-use crate::services::Services;
+use crate::adapters::context::AgentContext;
+use crate::adapters::files::FileReferences;
+use crate::adapters::persona::Repository as PersonaRepository;
+use crate::adapters::skills::SkillSet;
+use crate::composition::services::Services;
+use crate::runtime::agent_builder::AgentBuilder;
+use crate::runtime::turn_runner::scripted::ScriptedTurnRunner;
 
 /// Scripted collaborators for a conversation, with handles the test keeps to drive and inspect them.
 #[derive(Debug)]

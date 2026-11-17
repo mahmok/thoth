@@ -1,7 +1,7 @@
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
-use thoth_core::transcript::{Message, Speaker};
+use thoth_core::domain::transcript::{Message, Speaker};
 
 use super::markdown;
 use crate::theme::{self, Shade, palette};

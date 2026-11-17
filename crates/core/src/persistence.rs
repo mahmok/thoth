@@ -1,6 +1,6 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
-use crate::config::db_path;
+use crate::adapters::config::db_path;
 use anyhow::{Ok, Result};
 
 pub async fn get_db() -> Result<SqlitePool> {

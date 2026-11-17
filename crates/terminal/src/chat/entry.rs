@@ -1,4 +1,4 @@
-use thoth_core::transcript::Message;
+use thoth_core::domain::transcript::Message;
 
 use super::cache::Cache;
 use super::markdown;
@@ -90,7 +90,7 @@ fn append_blocks(rows: &mut Vec<Row>, text: &str, width: usize, label_rows: usiz
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thoth_core::transcript::Speaker;
+    use thoth_core::domain::transcript::Speaker;
 
     const WIDTH: usize = 40;
 

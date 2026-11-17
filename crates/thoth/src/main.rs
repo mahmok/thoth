@@ -1,5 +1,5 @@
 use color_eyre::eyre::eyre;
-use thoth_core::bootstrap;
+use thoth_core::composition;
 
 fn main() -> color_eyre::Result<()> {
     if asks_for_version() {
@@ -17,6 +17,6 @@ fn asks_for_version() -> bool {
 
 #[tokio::main]
 async fn run() -> color_eyre::Result<()> {
-    let harness = bootstrap::start().await.map_err(|e| eyre!("{e:#}"))?;
+    let harness = composition::start().await.map_err(|e| eyre!("{e:#}"))?;
     thoth_terminal::run(harness)
 }

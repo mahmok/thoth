@@ -1,0 +1,93 @@
+//! Starting the app and the services it is built from.
+
+/// The services a Harness is built from.
+pub mod services;
+
+use alloc::sync::Arc;
+use std::env;
+use std::path::PathBuf;
+
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::auth::worker::TokioLogin as TokioLoginWorker;
+use crate::adapters::context::AgentContext;
+use crate::adapters::files::FileReferences;
+use crate::adapters::models::fetch::ModelFetcher;
+use crate::adapters::models::store::{InMemory as InMemoryModelsStore, Json as JsonModelsStore, Models as ModelsStore};
+use crate::adapters::models::worker::TokioRefresh as TokioRefreshWorker;
+use crate::adapters::persona::Repository as PersonaRepository;
+use crate::adapters::skills::SkillSet;
+use crate::adapters::workspace::Workspace;
+use crate::application::harness::Harness;
+use crate::application::login::LoginAttempt;
+use crate::application::model_refresh::ModelRefreshRun;
+use crate::composition::services::Services;
+use crate::persistence::get_db;
+use crate::runtime::agent_builder::AgentBuilder;
+use anyhow::Context as _;
+
+#[inline]
+/// Builds the Harness: credentials, models, skills, Personas and the file index.
+///
+/// # Errors
+///
+/// Fails if the Workspace, skills, AGENTS.md files or Personas cannot be loaded.
+pub async fn start() -> anyhow::Result<Harness> {
+    let _db = get_db().await?;
+    let (store, store_notice) = open_credentials();
+    let (models, models_notice) = open_models();
+    let notice: Vec<String> = [store_notice, models_notice].into_iter().flatten().collect();
+
+    let workspace = Workspace::from_current_dir()?;
+    let skills = load_skills(&workspace)?;
+    let context = AgentContext::new(workspace.root()).with_agent_files().context("Failed to load AGENTS.md files")?;
+    let builder = AgentBuilder::new(Arc::clone(&store), Arc::clone(&models), workspace.clone(), context, skills);
+    let mut personas = PersonaRepository::default();
+
+    personas.load().await.context("Failed to load personas")?;
+    let files = Arc::new(FileReferences::new(workspace.clone()));
+
+    let harness = Harness::new(Services {
+        personas,
+        builder,
+        logins: LoginAttempt::new(Box::new(TokioLoginWorker::new(Arc::clone(&store))), Arc::clone(&store)),
+        refresh: ModelRefreshRun::new(Box::new(TokioRefreshWorker::new(
+            ModelFetcher::new(Arc::clone(&store)),
+            Arc::clone(&models),
+        ))),
+        credentials: store,
+        models,
+        files,
+    });
+    if notice.is_empty() { Ok(harness) } else { Ok(harness.with_notice(notice.join("\n"))) }
+}
+
+fn open_credentials() -> (Arc<CredentialStore>, Option<String>) {
+    let Some(path) = CredentialStore::default_path() else {
+        let notice = "No config directory found. Logins will not be saved.";
+        return (Arc::new(CredentialStore::unsaved()), Some(notice.into()));
+    };
+    match CredentialStore::open(&path) {
+        Ok(store) => (Arc::new(store), None),
+        Err(e) => {
+            let notice = format!("Could not read {}: {e}. Logins will not be saved this session.", path.display());
+            (Arc::new(CredentialStore::unsaved()), Some(notice))
+        },
+    }
+}
+
+fn open_models() -> (Arc<dyn ModelsStore>, Option<String>) {
+    JsonModelsStore::default_path().map_or_else(
+        || -> (Arc<dyn ModelsStore>, Option<String>) { (Arc::new(InMemoryModelsStore::default()), None) },
+        |path| -> (Arc<dyn ModelsStore>, Option<String>) {
+            let (store, warning) = JsonModelsStore::open(path);
+            (Arc::new(store), warning)
+        },
+    )
+}
+
+fn load_skills(workspace: &Workspace) -> anyhow::Result<SkillSet> {
+    let home = env::var_os("HOME").map(PathBuf::from);
+    let mut roots = vec![workspace.root()];
+    roots.extend(home.as_deref());
+    SkillSet::from_default_dirs(&roots).context("Failed to load skills")
+}

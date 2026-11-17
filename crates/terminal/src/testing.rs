@@ -6,11 +6,11 @@ use alloc::rc::Rc;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use thoth_core::agent::turn_runner::Reply;
-use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
-use thoth_core::harness::Harness as CoreHarness;
-use thoth_core::models::testing::fixture;
-use thoth_core::session::SessionId;
+use thoth_core::adapters::models::testing::fixture;
+use thoth_core::application::harness::Harness as CoreHarness;
+use thoth_core::application::ports::Reply;
+use thoth_core::domain::shared::SessionId;
+use thoth_core::runtime::turn_runner::scripted::ScriptedTurnRunner;
 use thoth_core::test::scripted::Scripted;
 
 use crate::app::TerminalApp;
@@ -172,14 +172,14 @@ pub fn many_choices() -> crate::command::Choices {
 }
 
 /// Two file suggestions.
-pub fn paths() -> thoth_core::builtin::files::Suggestions {
-    let path = |p: &str| thoth_core::builtin::files::Suggestion {
+pub fn paths() -> thoth_core::adapters::files::Suggestions {
+    let path = |p: &str| thoth_core::adapters::files::Suggestion {
         label: p.into(),
         description: String::new(),
         partial: format!("@{p}"),
         full: format!("@{p} "),
     };
-    thoth_core::builtin::files::Suggestions {
+    thoth_core::adapters::files::Suggestions {
         title: "Paths".into(),
         items: vec![path("a.rs"), path("b.rs")],
         empty_message: "no files".into(),

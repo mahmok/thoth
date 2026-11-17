@@ -1,6 +1,6 @@
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use thoth_core::transcript::tool_call::{ToolCall, ToolStatus};
+use thoth_core::domain::transcript::tool_call::{ToolCall, ToolStatus};
 
 use crate::theme::{self, Status};
 

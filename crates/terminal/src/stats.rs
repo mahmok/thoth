@@ -1,4 +1,4 @@
-use thoth_core::session::stats::Stats;
+use thoth_core::application::session::stats::Stats;
 
 /// The usage totals as the footer shows them.
 pub fn summary(stats: &Stats) -> String {
@@ -26,7 +26,7 @@ pub fn summary(stats: &Stats) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thoth_core::llm::client::chat::Usage;
+    use thoth_core::adapters::llm::client::chat::Usage;
 
     fn usage(prompt: u32, completion: u32) -> Usage {
         Usage {

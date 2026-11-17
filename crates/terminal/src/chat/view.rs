@@ -4,7 +4,7 @@ use ratatui::layout::{Position, Rect};
 use ratatui::text::Line;
 use ratatui::widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
-use thoth_core::transcript::Transcript;
+use thoth_core::domain::transcript::Transcript;
 
 use super::layout::ChatLayout;
 use super::scroll::Scroll;
@@ -188,14 +188,14 @@ fn inner(area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use thoth_core::agent::AgentEvent;
-    use thoth_core::transcript::Speaker;
+    use thoth_core::domain::transcript::Speaker;
+    use thoth_core::runtime::agent::AgentEvent;
 
     use super::*;
     use crossterm::event::{KeyModifiers, MouseButton};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use thoth_core::agent::tools::tool::Outcome as ToolResult;
+    use thoth_core::runtime::tools::tool::Outcome as ToolResult;
 
     const WIDTH: u16 = 30;
     const HEIGHT: u16 = 8;
