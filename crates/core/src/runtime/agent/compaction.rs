@@ -180,13 +180,13 @@ fn instruction(focus: Option<&str>, sub_agents: &[SubAgentInfo]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::context::AgentContext;
     use crate::adapters::llm::client::StreamedCompletion;
     use crate::adapters::llm::client::error::Failure as ClientError;
     use crate::adapters::llm::client::fake;
     use crate::adapters::llm::client::fake::Client as FakeClient;
     use crate::domain::conversation::budget::{Budget as ContextBudget, Compaction};
     use crate::runtime::agent::tests::{build, text};
-    use crate::runtime::context::AgentContext;
     use std::path::Path;
 
     /// Compacts once the Conversation is over `budget` tokens, keeping only the latest Turn.
@@ -391,8 +391,8 @@ mod tests {
 
     #[tokio::test]
     async fn compacting_keeps_the_sub_agents_running() {
-        use crate::auth::store::Credentials as CredentialStore;
-        use crate::persona::Persona;
+        use crate::adapters::auth::store::Credentials as CredentialStore;
+        use crate::adapters::persona::Persona;
         use alloc::sync::Arc;
 
         let (agent, _) = agent(usize::MAX, vec![text("a"), text("b"), text("gist")]);

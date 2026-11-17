@@ -1,15 +1,15 @@
-use crate::auth::login::LoginAttempt;
-use crate::auth::store::{Credentials as CredentialStore, Source};
-use crate::builtin::files::{FileReferences, Suggestions};
+use crate::adapters::auth::login::LoginAttempt;
+use crate::adapters::auth::store::{Credentials as CredentialStore, Source};
+use crate::adapters::files::{FileReferences, Suggestions};
+use crate::adapters::models::choices;
+use crate::adapters::models::model_refresh::ModelRefreshRun;
+use crate::adapters::models::store::Models as ModelsStore;
+use crate::adapters::persona::{Info as PersonaInfo, Repository as PersonaRepository};
 use crate::domain::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
 use crate::domain::shared::SessionId;
 use crate::domain::thinking::Thinking;
 use crate::domain::transcript::Speaker;
-use crate::models::choices;
-use crate::models::model_refresh::ModelRefreshRun;
-use crate::models::store::Models as ModelsStore;
 use crate::notice::Notice;
-use crate::persona::{Info as PersonaInfo, Repository as PersonaRepository};
 use crate::runtime::agent_builder::AgentBuilder;
 use crate::runtime::turn_runner::TokioTurnRunner;
 #[cfg(any(test, feature = "testing"))]

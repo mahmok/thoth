@@ -2,7 +2,7 @@
 mod host;
 
 use crate::command::{Choices, Command};
-use thoth_core::builtin::files::Suggestions;
+use thoth_core::adapters::files::Suggestions;
 
 pub use crate::keymap::PickerKey;
 pub use host::{Catalog, Outcome, PickerHost, PromptText};

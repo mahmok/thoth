@@ -1,10 +1,10 @@
-use thoth_core::builtin::files::Suggestions;
+use thoth_core::adapters::files::Suggestions;
+use thoth_core::adapters::persona::Info as PersonaInfo;
 use thoth_core::domain::provider::{ModelSpec, Provider};
 use thoth_core::domain::shared::SessionId;
 use thoth_core::domain::thinking::Thinking;
 use thoth_core::domain::transcript::Speaker;
 use thoth_core::harness::{Harness, HarnessEvent, UseCaseError};
-use thoth_core::persona::Info as PersonaInfo;
 use thoth_core::session::LoginState;
 use thoth_core::session::Session;
 use thoth_core::session::view::{Login as LoginView, View};
@@ -200,9 +200,9 @@ mod tests {
     use alloc::sync::Arc;
 
     use super::*;
+    use thoth_core::adapters::models::testing::fixture;
+    use thoth_core::adapters::persona::Persona;
     use thoth_core::domain::provider::Model;
-    use thoth_core::models::testing::fixture;
-    use thoth_core::persona::Persona;
     use thoth_core::runtime::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::test::scripted::Scripted;
 

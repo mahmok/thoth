@@ -6,7 +6,7 @@ use std::os::unix::fs as unix_fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use crate::workspace::Workspace;
+use crate::adapters::workspace::Workspace;
 
 /// A throwaway directory tree under the system temp dir, removed on drop.
 #[derive(Debug)]

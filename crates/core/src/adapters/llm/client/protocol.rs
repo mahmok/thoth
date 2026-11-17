@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
-use crate::auth::Auth;
-use crate::auth::store::Credentials as CredentialStore;
+use crate::adapters::auth::Auth;
+use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::domain::provider::{Model, ModelSpec, Protocol};
 use crate::domain::shared::SessionId;
 

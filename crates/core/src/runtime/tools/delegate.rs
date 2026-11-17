@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
-use crate::persona::{Persona, Repository as PersonaRepository};
+use crate::adapters::persona::{Persona, Repository as PersonaRepository};
 use crate::runtime::agent::sub_agents::SubAgents;
 use crate::runtime::agent_builder::AgentBuilder;
 

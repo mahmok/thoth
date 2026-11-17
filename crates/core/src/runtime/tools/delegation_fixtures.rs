@@ -1,20 +1,20 @@
 use alloc::sync::Arc;
 
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::context::AgentContext;
 use crate::adapters::llm::client::StreamedCompletion;
 use crate::adapters::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
 use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::fake::Client as FakeClient;
-use crate::auth::store::Credentials as CredentialStore;
+use crate::adapters::models::store::InMemory as InMemoryModelsStore;
+use crate::adapters::persona::{Persona, Repository as PersonaRepository, Selection};
+use crate::adapters::skills::SkillSet;
 use crate::domain::provider::Model;
 use crate::domain::shared::SessionId;
 use crate::domain::transcript::Observed;
-use crate::models::store::InMemory as InMemoryModelsStore;
-use crate::persona::{Persona, Repository as PersonaRepository, Selection};
 use crate::runtime::agent::Agent;
 use crate::runtime::agent::delegation::Delegation;
 use crate::runtime::agent_builder::AgentBuilder;
-use crate::runtime::context::AgentContext;
-use crate::runtime::skills::SkillSet;
 use crate::runtime::tools::tool::Outcome as ToolResult;
 use crate::test::temp_tree::TempTree;
 

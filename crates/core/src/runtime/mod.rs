@@ -5,10 +5,6 @@ pub mod agent;
 pub mod agent_builder;
 /// Work that runs off the UI thread.
 pub mod background;
-/// Prompt context: AGENTS.md files and the token budget.
-pub mod context;
-/// Skills a prompt can pull in.
-pub mod skills;
 /// Tools an Agent can call.
 pub mod tools;
 /// Runs a Turn on its own task and reports back.

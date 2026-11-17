@@ -5,10 +5,10 @@ use core::cell::{Cell, RefCell};
 use alloc::sync::Arc;
 
 use super::{Reply, TurnRunner};
+use crate::adapters::skills::SkillSummary;
 use crate::domain::provider::{Model, ModelSpec, Provider};
 use crate::domain::thinking::Thinking;
 use crate::runtime::agent::{AgentChange, Settings};
-use crate::runtime::skills::SkillSummary;
 
 #[derive(Debug)]
 /// A `TurnRunner` that replays a script.

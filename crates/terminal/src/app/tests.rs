@@ -3,8 +3,8 @@ use core::time::Duration;
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::style::Color;
+use thoth_core::adapters::auth::flow::LoginEvent;
 use thoth_core::adapters::llm::client::chat::Usage;
-use thoth_core::auth::flow::LoginEvent;
 use thoth_core::domain::provider::Provider;
 use thoth_core::runtime::agent::AgentEvent;
 use thoth_core::runtime::tools::tool::Outcome as ToolResult;

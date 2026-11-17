@@ -8,8 +8,8 @@ use core::fmt::Debug;
 use crate::runtime::background::Background;
 
 use crate::adapters::llm::client::chat::Usage;
+use crate::adapters::skills::SkillSummary;
 use crate::runtime::agent::{Agent, AgentChange, AgentEvent, Settings};
-use crate::runtime::skills::SkillSummary;
 
 #[derive(Debug)]
 /// What the Agent task sends back.
@@ -91,7 +91,7 @@ impl TurnRunner for TokioTurnRunner {
 
     #[inline]
     fn skill_block(&self, name: &str) -> Option<String> {
-        self.agent.skills().get_skill_by_name(name).map(super::skills::Skill::block)
+        self.agent.skills().get_skill_by_name(name).map(crate::adapters::skills::Skill::block)
     }
 
     #[inline]
@@ -115,12 +115,12 @@ mod tests {
     use core::time::Duration;
 
     use super::*;
+    use crate::adapters::auth::store::Credentials as CredentialStore;
     use crate::adapters::llm::client::StreamedCompletion;
     use crate::adapters::llm::client::error::Failure as ClientError;
     use crate::adapters::llm::client::fake;
     use crate::adapters::llm::client::fake::Client as FakeClient;
     use crate::adapters::llm::client::protocol::ProtocolClient;
-    use crate::auth::store::Credentials as CredentialStore;
     use crate::domain::provider::{Model, ModelSpec, Provider};
     use crate::domain::thinking::Thinking;
     use crate::runtime::agent::{Agent, AgentEvent};

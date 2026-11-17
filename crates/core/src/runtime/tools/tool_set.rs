@@ -114,7 +114,7 @@ impl ToolSet {
     /// Whether `value` parses as the arguments of the Tool called `name`, so a test can prove the
     /// schema a Tool shows the model is the arguments it accepts.
     #[cfg(test)]
-    pub(super) fn accepts(&self, name: &str, value: &serde_json::Value) -> bool {
+    pub(crate) fn accepts(&self, name: &str, value: &serde_json::Value) -> bool {
         self.find(name).is_some_and(|tool| tool.accepts(value))
     }
 

@@ -3,22 +3,22 @@ use alloc::sync::Arc;
 use core::mem;
 
 use super::*;
+use crate::adapters::auth::flow::LoginEvent;
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::auth::testing::scripted::Worker as ScriptedLoginWorker;
+use crate::adapters::files::FileReferences;
 use crate::adapters::llm::client::chat::Usage;
-use crate::auth::flow::LoginEvent;
-use crate::auth::store::Credentials as CredentialStore;
-use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
-use crate::builtin::files::FileReferences;
+use crate::adapters::models::model_refresh;
+use crate::adapters::models::store::InMemory as InMemoryModelsStore;
+use crate::adapters::models::store::Models as ModelsStore;
+use crate::adapters::models::testing::scripted::Worker as ScriptedRefreshWorker;
+use crate::adapters::models::testing::{fixture, store_with};
 use crate::domain::provider::Provider;
 use crate::domain::provider::{Model, ModelSpec, Protocol};
 use crate::domain::thinking::Thinking;
 use crate::domain::transcript::Content;
 use crate::domain::transcript::tool_call::ToolStatus;
 use crate::harness::{Harness as CoreHarness, HarnessEvent, UseCaseError};
-use crate::models::model_refresh;
-use crate::models::store::InMemory as InMemoryModelsStore;
-use crate::models::store::Models as ModelsStore;
-use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
-use crate::models::testing::{fixture, store_with};
 use crate::runtime::agent::AgentEvent;
 use crate::runtime::tools::tool::Outcome as ToolResult;
 use crate::runtime::turn_runner::scripted::ScriptedTurnRunner;
@@ -763,7 +763,7 @@ fn notices_belong_to_no_session() {
 
 #[test]
 fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
-    use crate::persona::{Info as PersonaInfo, Persona};
+    use crate::adapters::persona::{Info as PersonaInfo, Persona};
 
     let scripted = Scripted::new(ScriptedTurnRunner::new(), &[]);
     let mut services = scripted.services(fixture());

@@ -11,13 +11,13 @@ use tokio::sync::SemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
+use crate::adapters::persona::Persona;
+use crate::adapters::workspace::truncate;
 use crate::domain::transcript::Observed;
-use crate::persona::Persona;
 use crate::runtime::agent::delegation::Delegation;
 use crate::runtime::agent::{Agent, AgentChange, Failure as AgentError, Settings};
 use crate::runtime::tools::tool::{Outcome as ToolResult, ToolContext};
 use crate::sync::MutexExt as _;
-use crate::workspace::truncate;
 
 /// The first line of a successful Sub-agent result, so the Root agent knows which id to message.
 const ID_HEADER: &str = "agent_id: ";
@@ -218,16 +218,16 @@ mod tests {
     use core::cell::Cell;
 
     use super::*;
+    use crate::adapters::auth::store::Credentials as CredentialStore;
     use crate::adapters::llm::client::StreamedCompletion;
     use crate::adapters::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind, Usage};
     use crate::adapters::llm::client::error::Failure as ClientError;
     use crate::adapters::llm::client::fake;
     use crate::adapters::llm::client::fake::Client as FakeClient;
     use crate::adapters::llm::client::protocol::ProtocolClient;
-    use crate::auth::store::Credentials as CredentialStore;
+    use crate::adapters::skills::SkillSet;
     use crate::domain::provider::{Model, ModelSpec, Provider};
     use crate::domain::thinking::Thinking;
-    use crate::runtime::skills::SkillSet;
     use crate::test::assert_empty;
     use core::iter;
     use core::time::Duration;

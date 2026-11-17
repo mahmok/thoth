@@ -2,22 +2,22 @@ use alloc::sync::Arc;
 use std::env;
 use std::path::PathBuf;
 
-use crate::auth::login::LoginAttempt;
-use crate::auth::store::Credentials as CredentialStore;
-use crate::auth::worker::TokioLogin as TokioLoginWorker;
-use crate::builtin::files::FileReferences;
+use crate::adapters::auth::login::LoginAttempt;
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::auth::worker::TokioLogin as TokioLoginWorker;
+use crate::adapters::context::AgentContext;
+use crate::adapters::files::FileReferences;
+use crate::adapters::models::fetch::ModelFetcher;
+use crate::adapters::models::model_refresh::ModelRefreshRun;
+use crate::adapters::models::store::{InMemory as InMemoryModelsStore, Json as JsonModelsStore, Models as ModelsStore};
+use crate::adapters::models::worker::TokioRefresh as TokioRefreshWorker;
+use crate::adapters::persona::Repository as PersonaRepository;
+use crate::adapters::skills::SkillSet;
+use crate::adapters::workspace::Workspace;
 use crate::harness::Harness;
-use crate::models::fetch::ModelFetcher;
-use crate::models::model_refresh::ModelRefreshRun;
-use crate::models::store::{InMemory as InMemoryModelsStore, Json as JsonModelsStore, Models as ModelsStore};
-use crate::models::worker::TokioRefresh as TokioRefreshWorker;
 use crate::persistence::get_db;
-use crate::persona::Repository as PersonaRepository;
 use crate::runtime::agent_builder::AgentBuilder;
-use crate::runtime::context::AgentContext;
-use crate::runtime::skills::SkillSet;
 use crate::services::Services;
-use crate::workspace::Workspace;
 use anyhow::Context as _;
 
 #[inline]

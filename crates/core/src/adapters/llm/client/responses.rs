@@ -4,7 +4,7 @@ use reqwest::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::auth::Auth;
+use crate::adapters::auth::Auth;
 use crate::domain::thinking::Thinking;
 
 use super::body::Common;
@@ -500,7 +500,7 @@ mod tests {
     fn tools_can_be_forbidden_for_one_request() {
         use alloc::sync::Arc;
 
-        use crate::auth::store::Credentials as CredentialStore;
+        use crate::adapters::auth::store::Credentials as CredentialStore;
         use crate::domain::provider::{Protocol, Provider};
 
         let auth = Auth::new(
@@ -524,7 +524,7 @@ mod tests {
     fn every_request_of_a_session_carries_its_id_as_the_cache_key() {
         use alloc::sync::Arc;
 
-        use crate::auth::store::Credentials as CredentialStore;
+        use crate::adapters::auth::store::Credentials as CredentialStore;
         use crate::domain::provider::{Protocol, Provider};
         use crate::domain::shared::SessionId;
 

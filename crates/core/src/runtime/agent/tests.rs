@@ -7,13 +7,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::*;
+use crate::adapters::auth::testing::MockServer;
 use crate::adapters::llm::client::StreamedCompletion;
 use crate::adapters::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
 use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::fake::Client as FakeClient;
-use crate::auth::testing::MockServer;
+use crate::adapters::persona::Persona;
 use crate::domain::provider::{LoginMethod, Model, ModelSpec, Protocol, Provider};
-use crate::persona::Persona;
 use crate::runtime::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
 use crate::test::assert_empty;
 

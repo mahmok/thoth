@@ -2,7 +2,7 @@ use reqwest::Response;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::auth::Auth;
+use crate::adapters::auth::Auth;
 use crate::domain::thinking::Thinking;
 
 use super::body::Common;
@@ -178,8 +178,8 @@ mod tests {
     async fn the_done_sentinel_ends_the_stream_before_anything_after_it() {
         use alloc::sync::Arc;
 
-        use crate::auth::store::Credentials as CredentialStore;
-        use crate::auth::testing::MockServer;
+        use crate::adapters::auth::store::Credentials as CredentialStore;
+        use crate::adapters::auth::testing::MockServer;
         use crate::domain::provider::{Protocol, Provider};
 
         let reply = concat!(
@@ -206,8 +206,8 @@ mod tests {
     async fn a_reply_that_hits_the_token_limit_is_an_error_not_an_empty_reply() {
         use alloc::sync::Arc;
 
-        use crate::auth::store::Credentials as CredentialStore;
-        use crate::auth::testing::MockServer;
+        use crate::adapters::auth::store::Credentials as CredentialStore;
+        use crate::adapters::auth::testing::MockServer;
         use crate::domain::provider::{Protocol, Provider};
 
         let reply = "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n";
@@ -228,8 +228,8 @@ mod tests {
     async fn a_model_that_rejects_reasoning_effort_is_retried_without_it_once() {
         use alloc::sync::Arc;
 
-        use crate::auth::store::Credentials as CredentialStore;
-        use crate::auth::testing::MockServer;
+        use crate::adapters::auth::store::Credentials as CredentialStore;
+        use crate::adapters::auth::testing::MockServer;
         use crate::domain::provider::{Protocol, Provider};
         use crate::domain::shared::SessionId;
 
@@ -266,8 +266,8 @@ mod tests {
     async fn tools_can_be_forbidden_for_one_request() {
         use alloc::sync::Arc;
 
-        use crate::auth::store::Credentials as CredentialStore;
-        use crate::auth::testing::MockServer;
+        use crate::adapters::auth::store::Credentials as CredentialStore;
+        use crate::adapters::auth::testing::MockServer;
         use crate::domain::provider::{Protocol, Provider};
 
         let reply = "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n";

@@ -10,16 +10,16 @@ use serde_json::{Value, json};
 use tokio::time;
 
 use super::*;
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::context::AgentContext;
 use crate::adapters::llm::client::chat::Role;
 use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::fake;
 use crate::adapters::llm::client::fake::Client as FakeClient;
 use crate::adapters::llm::client::protocol::ProtocolClient;
-use crate::auth::store::Credentials as CredentialStore;
 use crate::domain::conversation::budget::Budget;
 use crate::runtime::agent::tests::{Echo, EchoArgs, build, call, calls, test_model, text};
 use crate::runtime::agent::{AgentChange, DEFAULT_MAX_STEPS};
-use crate::runtime::context::AgentContext;
 use crate::runtime::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
 use crate::runtime::tools::tool_set::ToolSet;
 use crate::test::assert_empty;

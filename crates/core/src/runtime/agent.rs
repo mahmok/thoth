@@ -5,10 +5,12 @@ pub mod sub_agents;
 /// Runs one Turn: its model steps, Tool calls, and events.
 mod turn;
 
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::context::AgentContext;
 use crate::adapters::llm::client::chat::Usage;
 use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::protocol::ProtocolClient;
-use crate::auth::store::Credentials as CredentialStore;
+use crate::adapters::skills::SkillSet;
 use crate::domain::conversation::Conversation;
 use crate::domain::conversation::budget::{Budget, ContextBudget};
 use crate::domain::provider::ModelSpec;
@@ -16,8 +18,6 @@ use crate::domain::shared::SessionId;
 use crate::domain::thinking::Thinking;
 use crate::runtime::agent::delegation::Delegation;
 use crate::runtime::agent::sub_agents::SubAgents;
-use crate::runtime::context::AgentContext;
-use crate::runtime::skills::SkillSet;
 use crate::runtime::tools::tool::Outcome as ToolResult;
 use crate::runtime::tools::tool_set::ToolSet;
 use crate::sync::{MutexExt as _, RwLockExt as _};

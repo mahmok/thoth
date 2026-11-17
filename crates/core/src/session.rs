@@ -9,9 +9,9 @@ use crate::domain::provider::ModelSpec;
 use crate::domain::thinking::Thinking;
 use core::mem;
 
+use crate::adapters::skills::SkillSummary;
 use crate::domain::transcript::{Speaker, TranscriptChange};
 use crate::runtime::agent::AgentChange;
-use crate::runtime::skills::SkillSummary;
 use crate::runtime::turn_runner::{Reply, TurnRunner};
 
 use crate::domain::shared::SessionId;
@@ -109,7 +109,7 @@ impl Session {
     #[inline]
     /// Replaces each `/skill:name` in `prompt` with that skill's block.
     pub fn expand_skills(&self, prompt: &str) -> String {
-        crate::builtin::skills::expand_skills(prompt, self.runner.as_ref())
+        crate::adapters::skills::expand::expand_skills(prompt, self.runner.as_ref())
     }
 
     const fn idle(&self) -> Result<(), Refusal> {

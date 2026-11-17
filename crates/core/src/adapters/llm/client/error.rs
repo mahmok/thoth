@@ -1,7 +1,7 @@
 use alloc::fmt;
 use core::error;
 
-use crate::auth::Failure as AuthError;
+use crate::adapters::auth::Failure as AuthError;
 
 #[derive(Debug)]
 /// Why a request to a model failed.

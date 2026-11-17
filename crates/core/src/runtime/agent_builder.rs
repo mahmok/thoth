@@ -5,23 +5,23 @@ use alloc::sync::Arc;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::auth::store::Credentials as CredentialStore;
+use crate::adapters::auth::store::Credentials as CredentialStore;
+use crate::adapters::context::AgentContext;
+use crate::adapters::models::store::Models as ModelsStore;
+use crate::adapters::persona::Repository as PersonaRepository;
+use crate::adapters::persona::{Persona, Selection};
+use crate::adapters::skills::SkillSet;
+use crate::adapters::tools;
+use crate::adapters::workspace::Workspace;
 use crate::domain::provider::ModelSpec;
 use crate::domain::shared::SessionId;
-use crate::models::store::Models as ModelsStore;
-use crate::persona::Repository as PersonaRepository;
-use crate::persona::{Persona, Selection};
 use crate::runtime::agent::delegation::Delegation;
 use crate::runtime::agent::sub_agents::SubAgents;
 use crate::runtime::agent::{Agent, AgentChange};
-use crate::runtime::context::AgentContext;
-use crate::runtime::skills::SkillSet;
-use crate::runtime::tools;
 use crate::runtime::tools::delegate::Delegate as DelegateTool;
 use crate::runtime::tools::message::Messenger as MessageTool;
 use crate::runtime::tools::tool_set::ToolSet;
 use crate::sync::MutexExt as _;
-use crate::workspace::Workspace;
 
 #[cfg(any(test, feature = "testing"))]
 use crate::adapters::llm::client::fake::Client as FakeClient;
@@ -199,10 +199,10 @@ mod tests {
     use crate::adapters::llm::client::StreamedCompletion;
     use crate::adapters::llm::client::fake::Client as FakeClient;
     use crate::adapters::llm::client::protocol::ProtocolClient;
+    use crate::adapters::models::store::InMemory as InMemoryModelsStore;
+    use crate::adapters::persona::Repository as PersonaRepository;
     use crate::domain::provider::{Model, ModelSpec, Provider};
     use crate::domain::thinking::Thinking;
-    use crate::models::store::InMemory as InMemoryModelsStore;
-    use crate::persona::Repository as PersonaRepository;
     use crate::test::temp_tree::TempTree;
 
     fn builder(tree: &TempTree) -> AgentBuilder {

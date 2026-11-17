@@ -1,5 +1,5 @@
 use crate::command::{Choices, Command};
-use thoth_core::builtin::files::Suggestions;
+use thoth_core::adapters::files::Suggestions;
 
 use super::{Completion, Picker, PickerView, Scope};
 use crate::keymap::PickerKey;

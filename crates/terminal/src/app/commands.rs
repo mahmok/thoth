@@ -5,7 +5,7 @@ use super::TerminalApp;
 use crate::client::TerminalClient;
 use crate::command::{self, Ran};
 use crate::picker::Catalog;
-use thoth_core::builtin::files::{FILE_TRIGGER, Suggestions};
+use thoth_core::adapters::files::{FILE_TRIGGER, Suggestions};
 
 impl TerminalApp {
     /// Puts the outcome of a command where it belongs.

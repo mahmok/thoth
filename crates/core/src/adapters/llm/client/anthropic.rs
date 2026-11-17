@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
-use crate::auth::Auth;
+use crate::adapters::auth::Auth;
 use crate::domain::thinking::Thinking;
 
 use super::body::Common;
@@ -546,7 +546,7 @@ mod tests {
     use super::super::chat::{FunctionCall, ToolCallKind};
     use super::super::stream::Adapter as _;
     use super::*;
-    use crate::auth::store::Credentials as CredentialStore;
+    use crate::adapters::auth::store::Credentials as CredentialStore;
     use crate::domain::provider::{Model, ModelSpec, Protocol, Provider};
     use crate::domain::shared::SessionId;
 

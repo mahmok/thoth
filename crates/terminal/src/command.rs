@@ -1,5 +1,5 @@
 use super::client::TerminalClient;
-use thoth_core::builtin::skills::SKILL_PREFIX;
+use thoth_core::adapters::skills::expand::SKILL_PREFIX;
 #[cfg(test)]
 use thoth_core::domain::provider::Provider;
 use thoth_core::domain::shared::SessionId;
@@ -358,17 +358,17 @@ fn logouts(session: &TerminalClient) -> Vec<Pick> {
 mod tests {
     use super::*;
     use alloc::rc::Rc;
+    use thoth_core::adapters::models::testing::fixture;
     use thoth_core::domain::transcript::Content;
     use thoth_core::harness::Harness;
     use thoth_core::harness::HarnessEvent;
-    use thoth_core::models::testing::fixture;
     use thoth_core::runtime::turn_runner::Reply;
     use thoth_core::runtime::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::test::assert_empty;
     use thoth_core::test::scripted::Scripted;
 
+    use thoth_core::adapters::persona::Persona;
     use thoth_core::domain::transcript::Speaker;
-    use thoth_core::persona::Persona;
 
     struct Fixture {
         agent: Rc<ScriptedTurnRunner>,

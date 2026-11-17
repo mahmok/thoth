@@ -10,8 +10,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::adapters::llm::client::ToolSpec;
 use crate::adapters::llm::client::chat::Usage;
+use crate::adapters::skills::SkillSet;
 use crate::runtime::agent::Settings;
-use crate::runtime::skills::SkillSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// What a Tool returns.
@@ -316,7 +316,7 @@ fn coerce(value: &mut Value, schema: &Value) {
     }
 }
 
-pub(super) async fn blocking<F>(work: F) -> Outcome
+pub(crate) async fn blocking<F>(work: F) -> Outcome
 where
     F: FnOnce() -> Result<String, String> + Send + 'static,
 {
