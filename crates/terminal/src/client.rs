@@ -1,13 +1,13 @@
 use thoth_core::adapters::files::Suggestions;
 use thoth_core::adapters::persona::Info as PersonaInfo;
+use thoth_core::application::harness::{Harness, HarnessEvent, UseCaseError};
+use thoth_core::application::session::LoginState;
+use thoth_core::application::session::Session;
+use thoth_core::application::session::view::{Login as LoginView, View};
 use thoth_core::domain::provider::{ModelSpec, Provider};
 use thoth_core::domain::shared::SessionId;
 use thoth_core::domain::thinking::Thinking;
 use thoth_core::domain::transcript::Speaker;
-use thoth_core::harness::{Harness, HarnessEvent, UseCaseError};
-use thoth_core::session::LoginState;
-use thoth_core::session::Session;
-use thoth_core::session::view::{Login as LoginView, View};
 
 /// A Harness and the one session this terminal is showing. Which session is viewed is the
 /// terminal's business; the Harness only knows its sessions by id.

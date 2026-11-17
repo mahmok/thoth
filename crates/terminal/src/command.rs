@@ -1,11 +1,11 @@
 use super::client::TerminalClient;
 use thoth_core::adapters::skills::expand::SKILL_PREFIX;
+use thoth_core::application::harness::UseCaseError;
+use thoth_core::application::session::{LoginState, Refusal};
 #[cfg(test)]
 use thoth_core::domain::provider::Provider;
 use thoth_core::domain::shared::SessionId;
 use thoth_core::domain::thinking::Thinking;
-use thoth_core::harness::UseCaseError;
-use thoth_core::session::{LoginState, Refusal};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A slash command.
@@ -359,10 +359,10 @@ mod tests {
     use super::*;
     use alloc::rc::Rc;
     use thoth_core::adapters::models::testing::fixture;
+    use thoth_core::application::harness::Harness;
+    use thoth_core::application::harness::HarnessEvent;
+    use thoth_core::application::ports::Reply;
     use thoth_core::domain::transcript::Content;
-    use thoth_core::harness::Harness;
-    use thoth_core::harness::HarnessEvent;
-    use thoth_core::runtime::turn_runner::Reply;
     use thoth_core::runtime::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::test::assert_empty;
     use thoth_core::test::scripted::Scripted;

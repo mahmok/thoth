@@ -2,7 +2,7 @@ use alloc::collections::VecDeque;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
-use crate::adapters::models::model_refresh;
+use crate::application::model_refresh;
 use crate::domain::provider::Provider;
 
 #[derive(Default, Debug)]

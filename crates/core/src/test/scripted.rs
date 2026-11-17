@@ -2,22 +2,22 @@ use alloc::rc::Rc;
 use alloc::sync::Arc;
 
 use crate::adapters::auth::credential::Credential;
-use crate::adapters::auth::login::LoginAttempt;
 use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::adapters::auth::testing::scripted::Worker as ScriptedLoginWorker;
-use crate::adapters::models::model_refresh::ModelRefreshRun;
 use crate::adapters::models::store::InMemory as InMemoryModelsStore;
 use crate::adapters::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::adapters::workspace::Workspace;
+use crate::application::login::LoginAttempt;
+use crate::application::model_refresh::ModelRefreshRun;
 use crate::domain::provider::Provider;
 
 use crate::adapters::context::AgentContext;
 use crate::adapters::files::FileReferences;
 use crate::adapters::persona::Repository as PersonaRepository;
 use crate::adapters::skills::SkillSet;
+use crate::composition::services::Services;
 use crate::runtime::agent_builder::AgentBuilder;
 use crate::runtime::turn_runner::scripted::ScriptedTurnRunner;
-use crate::services::Services;
 
 /// Scripted collaborators for a conversation, with handles the test keeps to drive and inspect them.
 #[derive(Debug)]

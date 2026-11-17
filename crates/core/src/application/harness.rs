@@ -1,10 +1,17 @@
-use crate::adapters::auth::login::LoginAttempt;
 use crate::adapters::auth::store::{Credentials as CredentialStore, Source};
 use crate::adapters::files::{FileReferences, Suggestions};
 use crate::adapters::models::choices;
-use crate::adapters::models::model_refresh::ModelRefreshRun;
 use crate::adapters::models::store::Models as ModelsStore;
 use crate::adapters::persona::{Info as PersonaInfo, Repository as PersonaRepository};
+use crate::application::login::LoginAttempt;
+use crate::application::model_refresh::ModelRefreshRun;
+#[cfg(any(test, feature = "testing"))]
+use crate::application::ports::TurnRunner;
+use crate::application::session::Session;
+use crate::application::session::event::SessionEvent;
+use crate::application::session::view::Login as LoginView;
+use crate::application::session::{LoginState, Refusal};
+use crate::composition::services::Services;
 use crate::domain::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
 use crate::domain::shared::SessionId;
 use crate::domain::thinking::Thinking;
@@ -12,13 +19,6 @@ use crate::domain::transcript::Speaker;
 use crate::notice::Notice;
 use crate::runtime::agent_builder::AgentBuilder;
 use crate::runtime::turn_runner::TokioTurnRunner;
-#[cfg(any(test, feature = "testing"))]
-use crate::runtime::turn_runner::TurnRunner;
-use crate::services::Services;
-use crate::session::Session;
-use crate::session::event::SessionEvent;
-use crate::session::view::Login as LoginView;
-use crate::session::{LoginState, Refusal};
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::mem;

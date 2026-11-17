@@ -1,5 +1,5 @@
 pub mod fetch;
-pub mod model_refresh;
+pub mod refresh;
 pub mod store;
 #[cfg(any(test, feature = "testing"))]
 #[expect(clippy::unwrap_used, reason = "test support: a failed setup should fail the test")]

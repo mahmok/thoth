@@ -4,30 +4,26 @@
 
 /// The clients that talk to the outside world.
 pub mod adapters;
-/// Starting the app.
-pub mod bootstrap;
+/// The use cases: the Harness, its Sessions and the things they drive.
+pub mod application;
 /// The system clock.
 pub mod clock;
+/// Starting the app and the services it is built from.
+pub mod composition;
 /// The records and rules that hold without a runtime.
 pub mod domain;
-/// The Harness: the Sessions and what they share.
-pub mod harness;
 /// Notices for the user.
-pub mod notice;
+pub(crate) mod notice;
 /// Where db constructs live
-pub mod persistence;
+pub(crate) mod persistence;
 /// The Agent, its Turns and the tasks they run on.
 pub mod runtime;
-/// The services a Harness is built from.
-pub mod services;
-/// A Session: one conversation and its view.
-pub mod session;
-pub mod sync;
+pub(crate) mod sync;
 #[cfg(any(test, feature = "testing"))]
 #[expect(clippy::unwrap_used, reason = "test support: a failed setup should fail the test")]
 pub mod test;
 /// Small shared helpers.
-pub mod utils;
+pub(crate) mod utils;
 
 extern crate alloc;
 

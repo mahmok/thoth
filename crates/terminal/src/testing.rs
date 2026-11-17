@@ -7,9 +7,9 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, Mouse
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use thoth_core::adapters::models::testing::fixture;
+use thoth_core::application::harness::Harness as CoreHarness;
+use thoth_core::application::ports::Reply;
 use thoth_core::domain::shared::SessionId;
-use thoth_core::harness::Harness as CoreHarness;
-use thoth_core::runtime::turn_runner::Reply;
 use thoth_core::runtime::turn_runner::scripted::ScriptedTurnRunner;
 use thoth_core::test::scripted::Scripted;
 

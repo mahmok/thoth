@@ -1,23 +1,28 @@
+//! Starting the app and the services it is built from.
+
+/// The services a Harness is built from.
+pub mod services;
+
 use alloc::sync::Arc;
 use std::env;
 use std::path::PathBuf;
 
-use crate::adapters::auth::login::LoginAttempt;
 use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::adapters::auth::worker::TokioLogin as TokioLoginWorker;
 use crate::adapters::context::AgentContext;
 use crate::adapters::files::FileReferences;
 use crate::adapters::models::fetch::ModelFetcher;
-use crate::adapters::models::model_refresh::ModelRefreshRun;
 use crate::adapters::models::store::{InMemory as InMemoryModelsStore, Json as JsonModelsStore, Models as ModelsStore};
 use crate::adapters::models::worker::TokioRefresh as TokioRefreshWorker;
 use crate::adapters::persona::Repository as PersonaRepository;
 use crate::adapters::skills::SkillSet;
 use crate::adapters::workspace::Workspace;
-use crate::harness::Harness;
+use crate::application::harness::Harness;
+use crate::application::login::LoginAttempt;
+use crate::application::model_refresh::ModelRefreshRun;
+use crate::composition::services::Services;
 use crate::persistence::get_db;
 use crate::runtime::agent_builder::AgentBuilder;
-use crate::services::Services;
 use anyhow::Context as _;
 
 #[inline]

@@ -4,8 +4,9 @@ use crate::domain::provider::Provider;
 use crate::runtime::background::Background;
 
 use super::fetch::ModelFetcher;
-use super::model_refresh;
+use super::refresh;
 use super::store::Models as ModelsStore;
+use crate::application::model_refresh;
 
 #[derive(Debug)]
 /// A refresh worker on tokio.
@@ -27,7 +28,7 @@ impl model_refresh::Worker for TokioRefresh {
     fn start(&self, providers: Vec<Provider>) {
         let (fetcher, store) = (Arc::clone(&self.fetcher), Arc::clone(&self.store));
         self.refresh.start(|events| async move {
-            model_refresh::run(&providers, &fetcher, store.as_ref(), |event| {
+            refresh::run(&providers, &fetcher, store.as_ref(), |event| {
                 let _unused = events.send(event);
             })
             .await;
@@ -47,9 +48,9 @@ mod tests {
     use super::*;
     use crate::adapters::auth::store::Credentials as CredentialStore;
     use crate::adapters::auth::testing::MockServer;
-    use crate::adapters::models::model_refresh;
-    use crate::adapters::models::model_refresh::Worker as _;
     use crate::adapters::models::store::InMemory as InMemoryModelsStore;
+    use crate::application::model_refresh;
+    use crate::application::model_refresh::Worker as _;
     use tokio::time;
 
     #[tokio::test]

@@ -42,7 +42,7 @@ mod units;
 
 extern crate alloc;
 
-use thoth_core::harness::Harness;
+use thoth_core::application::harness::Harness;
 
 #[inline]
 /// Runs the app until the user quits.

@@ -11,10 +11,10 @@ use crate::keymap::{self, Context, Effect};
 use crate::picker::{Outcome, PickerKey, PromptText};
 use crate::toast;
 use crossterm::event::{Event, KeyEvent, KeyEventKind};
+use thoth_core::application::harness::HarnessEvent;
+use thoth_core::application::session::event::SessionEvent;
+use thoth_core::application::session::view::Login as LoginView;
 use thoth_core::domain::transcript::{Content, Item, Speaker, TranscriptChange};
-use thoth_core::harness::HarnessEvent;
-use thoth_core::session::event::SessionEvent;
-use thoth_core::session::view::Login as LoginView;
 
 impl TerminalApp {
     /// Handles one terminal event. `now` is when it arrived, in milliseconds, so a copy can

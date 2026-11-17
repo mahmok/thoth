@@ -1,4 +1,4 @@
-use thoth_core::session::stats::Stats;
+use thoth_core::application::session::stats::Stats;
 
 /// The usage totals as the footer shows them.
 pub fn summary(stats: &Stats) -> String {

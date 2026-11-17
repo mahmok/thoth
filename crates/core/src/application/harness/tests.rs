@@ -8,23 +8,23 @@ use core::time::Duration;
 use tokio::time;
 
 use super::*;
-use crate::adapters::auth::login::LoginAttempt;
 use crate::adapters::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::adapters::context::AgentContext;
 use crate::adapters::llm::client::StreamedCompletion;
 use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::fake::Client as FakeClient;
-use crate::adapters::models::model_refresh::ModelRefreshRun;
 use crate::adapters::models::store::InMemory as InMemoryModelsStore;
 use crate::adapters::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::adapters::persona::{Persona, Repository as PersonaRepository};
 use crate::adapters::skills::SkillSet;
+use crate::application::login::LoginAttempt;
+use crate::application::model_refresh::ModelRefreshRun;
+use crate::composition::services::Services;
 use crate::domain::conversation::budget::{Budget, Compaction};
 use crate::domain::provider::Model;
 use crate::domain::transcript::Content;
 use crate::runtime::agent::COMPACTION_CALL_ID;
 use crate::runtime::agent_builder::AgentBuilder;
-use crate::services::Services;
 use crate::test::temp_tree::TempTree;
 
 #[expect(clippy::unnecessary_wraps, reason = "the fake client's script holds Results, and the caller compares Options")]

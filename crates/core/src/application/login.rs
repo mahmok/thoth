@@ -6,8 +6,8 @@ use crate::domain::provider::Provider;
 
 use crate::notice::Notice;
 
-use super::flow::LoginEvent;
-use super::store::Credentials as CredentialStore;
+use crate::adapters::auth::flow::LoginEvent;
+use crate::adapters::auth::store::Credentials as CredentialStore;
 
 /// Runs a login off the UI thread.
 pub trait LoginWorker: Debug {

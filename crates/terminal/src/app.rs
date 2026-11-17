@@ -17,7 +17,7 @@ use super::prompt::{Prompt, Submission};
 use super::toast::Toast;
 use core::time::Duration;
 use thoth_core::adapters::files::FILE_TRIGGER;
-use thoth_core::session::view::Login as LoginView;
+use thoth_core::application::session::view::Login as LoginView;
 
 /// The characters that start a word the picker can complete.
 const TRIGGERS: &[char] = &[FILE_TRIGGER];

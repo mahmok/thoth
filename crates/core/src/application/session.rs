@@ -10,9 +10,9 @@ use crate::domain::thinking::Thinking;
 use core::mem;
 
 use crate::adapters::skills::SkillSummary;
+use crate::application::ports::{Reply, TurnRunner};
 use crate::domain::transcript::{Speaker, TranscriptChange};
 use crate::runtime::agent::AgentChange;
-use crate::runtime::turn_runner::{Reply, TurnRunner};
 
 use crate::domain::shared::SessionId;
 use event::SessionEvent;

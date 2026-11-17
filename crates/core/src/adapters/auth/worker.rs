@@ -9,8 +9,8 @@ use crate::sync::MutexExt as _;
 
 use super::flow::{self, LoginEvent};
 use super::github::{Endpoints, Github};
-use super::login::LoginWorker;
 use super::store::Credentials as CredentialStore;
+use crate::application::login::LoginWorker;
 
 #[derive(Debug)]
 /// A login worker on tokio.
