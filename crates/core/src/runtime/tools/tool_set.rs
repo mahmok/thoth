@@ -3,7 +3,8 @@ use core::error;
 
 use crate::adapters::llm::client::ToolSpec;
 
-use super::tool::{ErasedTool, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
+use super::tool::{ErasedTool, Tool, ToolContext, Traits as ToolTraits};
+use crate::domain::tool::Outcome as ToolResult;
 
 #[derive(Debug, PartialEq, Eq)]
 /// Returned when a Tool name is registered twice.

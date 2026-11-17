@@ -5,10 +5,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::adapters::auth::Auth;
+use crate::domain::message::{Message, Reasoning};
+use crate::domain::shared::Usage;
 use crate::domain::thinking::Thinking;
 
 use super::body::Common;
-use super::chat::{Message, Reasoning, ToolCallBuffer, Usage};
+use super::chat::ToolCallBuffer;
 use super::{lowering, stream};
 
 use super::{
@@ -469,9 +471,9 @@ fn translate(messages: &[Message]) -> (Option<String>, Vec<Input<'_>>) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::chat::{FunctionCall, ToolCall, ToolCallKind};
     use super::super::stream::Adapter as _;
     use super::*;
+    use crate::domain::message::{FunctionCall, ToolCall, ToolCallKind};
 
     fn call(id: &str, arguments: &str) -> ToolCall {
         ToolCall {

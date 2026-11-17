@@ -3,9 +3,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::adapters::workspace::{MAX_READ_BYTES, ReadPolicy, Workspace, truncate};
-use crate::runtime::tools::tool::{
-    Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits, blocking,
-};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, Traits as ToolTraits, blocking};
 
 /// The largest file `read_file` loads. It is read whole before being cut to what the model may see.
 const MAX_FILE_BYTES: u64 = 20_000_000;

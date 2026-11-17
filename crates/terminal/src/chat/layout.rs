@@ -154,13 +154,14 @@ fn kinds_disagree() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use thoth_core::domain::tool::Outcome as ToolResult;
     use thoth_core::domain::transcript::{Speaker, TranscriptChange};
     use thoth_core::runtime::agent::AgentEvent;
-    use thoth_core::runtime::tools::tool::Outcome as ToolResult;
 
     /// Records what the Session would send for an agent event, the way a client applies it.
     fn record(transcript: &mut Transcript, event: AgentEvent) {
-        let change = transcript.agent_event(event).expect("the event changes the transcript");
+        let change = thoth_core::application::session::projector::change(transcript, event, now_ms())
+            .expect("the event changes the transcript");
         transcript.apply(&change);
     }
 

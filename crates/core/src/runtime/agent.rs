@@ -5,20 +5,19 @@ pub mod sub_agents;
 /// Runs one Turn: its model steps, Tool calls, and events.
 mod turn;
 
-use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::adapters::context::AgentContext;
-use crate::adapters::llm::client::chat::Usage;
 use crate::adapters::llm::client::error::Failure as ClientError;
-use crate::adapters::llm::client::protocol::ProtocolClient;
 use crate::adapters::skills::SkillSet;
+use crate::application::ports::{ClientFactory, ModelClient};
 use crate::domain::conversation::Conversation;
 use crate::domain::conversation::budget::{Budget, ContextBudget};
 use crate::domain::provider::ModelSpec;
 use crate::domain::shared::SessionId;
+use crate::domain::shared::Usage;
 use crate::domain::thinking::Thinking;
+use crate::domain::tool::Outcome as ToolResult;
 use crate::runtime::agent::delegation::Delegation;
 use crate::runtime::agent::sub_agents::SubAgents;
-use crate::runtime::tools::tool::Outcome as ToolResult;
 use crate::runtime::tools::tool_set::ToolSet;
 use crate::sync::{MutexExt as _, RwLockExt as _};
 use crate::utils::numbers;
@@ -76,6 +75,59 @@ pub enum AgentEvent {
         /// A short description of the call.
         summary: String,
     },
+}
+
+#[derive(Debug, Clone)]
+/// An Agent event, taken apart once. Everything that reads the event stream matches this rather
+/// than the event enum, so a new event variant is read in one place.
+pub enum Observed {
+    /// A fragment of the reply.
+    Text(String),
+    /// A fragment of the model's thinking.
+    Reasoning(String),
+    /// Something the user should know about the Turn.
+    Notice(String),
+    /// A model call is starting; steps are numbered from 1 within a Turn.
+    Step(usize),
+    /// A Tool call is starting.
+    ToolStarted {
+        /// The id of the call.
+        id: String,
+        /// A short description of the call.
+        summary: String,
+    },
+    /// A running Tool call reports a status line.
+    ToolProgress {
+        /// The id of the call.
+        id: String,
+        /// What the call is doing.
+        status: String,
+    },
+    /// A Tool call finished.
+    ToolFinished {
+        /// The id of the call.
+        id: String,
+        /// A short description of the call.
+        summary: String,
+        /// What the Tool returned.
+        result: ToolResult,
+    },
+}
+
+impl Observed {
+    /// Reads `event`. This is the one place the Agent's event enum is matched.
+    #[must_use]
+    pub fn of(event: AgentEvent) -> Self {
+        match event {
+            AgentEvent::Text(delta) => Self::Text(delta),
+            AgentEvent::Reasoning(delta) => Self::Reasoning(delta),
+            AgentEvent::Notice(text) => Self::Notice(text),
+            AgentEvent::StepStarted { step } => Self::Step(step),
+            AgentEvent::ToolStarted { id, summary } => Self::ToolStarted { id, summary },
+            AgentEvent::ToolProgress { id, status } => Self::ToolProgress { id, status },
+            AgentEvent::ToolFinished { id, summary, result } => Self::ToolFinished { id, summary, result },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -160,7 +212,7 @@ impl Drop for ActiveGuard<'_> {
 #[derive(Debug)]
 /// A model and its client, or the reason its protocol has no client.
 struct Current {
-    client: Result<Arc<ProtocolClient>, String>,
+    client: Result<Arc<dyn ModelClient>, String>,
     spec: ModelSpec,
 }
 
@@ -177,11 +229,11 @@ pub struct Agent {
     pub(crate) conversation: Mutex<Conversation>,
     current: RwLock<Option<Current>>,
     description: String,
+    factory: Arc<dyn ClientFactory>,
     max_steps: usize,
     name: String,
     session: SessionId,
     skills: SkillSet,
-    store: Arc<CredentialStore>,
     sub_agents: Arc<SubAgents>,
     thinking: RwLock<Thinking>,
     tools: ToolSet,
@@ -214,7 +266,7 @@ impl Agent {
         )
     }
 
-    pub(crate) fn client(&self) -> Result<Arc<ProtocolClient>, Failure> {
+    pub(crate) fn client(&self) -> Result<Arc<dyn ModelClient>, Failure> {
         let current = self.current.read_unpoisoned();
         let client = match current.as_ref().ok_or(Failure::NoModel)?.client {
             Ok(ref client) => Ok(Arc::clone(client)),
@@ -292,9 +344,9 @@ impl Agent {
     #[inline]
     /// Creates an Agent with no model, no Tools and an empty Conversation. It mints an id of its
     /// own; an Agent built for a Session is given that Session's id instead.
-    pub fn new(store: Arc<CredentialStore>) -> Self {
+    pub fn new(factory: Arc<dyn ClientFactory>) -> Self {
         Self {
-            store,
+            factory,
             current: RwLock::new(None),
             tools: ToolSet::new(),
             conversation: Mutex::new(Conversation::new()),
@@ -334,8 +386,7 @@ impl Agent {
     #[inline]
     /// Switches to `spec`, with a client of its own, and restarts token calibration.
     fn set_model(&self, spec: ModelSpec) {
-        let client =
-            ProtocolClient::for_model(&spec, &self.store, self.session).map(Arc::new).map_err(|e| e.to_string());
+        let client = self.factory.client_for(&spec, self.session);
         *self.current.write_unpoisoned() = Some(Current { client, spec });
         // Another model counts tokens its own way.
         *self.calibration.lock_unpoisoned() = 1.0;
@@ -370,17 +421,6 @@ impl Agent {
     #[inline]
     pub const fn tools(&self) -> &ToolSet {
         &self.tools
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    #[inline]
-    /// Replaces the client of the current model, for tests.
-    #[must_use]
-    pub fn with_client(self, client: ProtocolClient) -> Self {
-        if let Some(current) = self.current.write_unpoisoned().as_mut() {
-            current.client = Ok(Arc::new(client));
-        }
-        self
     }
 
     #[inline]

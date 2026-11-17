@@ -15,12 +15,13 @@ use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::fake::Client as FakeClient;
 use crate::adapters::models::store::InMemory as InMemoryModelsStore;
 use crate::adapters::models::testing::scripted::Worker as ScriptedRefreshWorker;
-use crate::adapters::persona::{Persona, Repository as PersonaRepository};
+use crate::adapters::persona::Repository as PersonaRepository;
 use crate::adapters::skills::SkillSet;
 use crate::application::login::LoginAttempt;
 use crate::application::model_refresh::ModelRefreshRun;
 use crate::composition::services::Services;
 use crate::domain::conversation::budget::{Budget, Compaction};
+use crate::domain::persona::Persona;
 use crate::domain::provider::Model;
 use crate::domain::transcript::Content;
 use crate::runtime::agent::COMPACTION_CALL_ID;
@@ -39,7 +40,7 @@ fn over_budget(fake: FakeClient, tree: &TempTree) -> Harness {
     let store = Arc::new(CredentialStore::in_memory());
     let models = Arc::new(InMemoryModelsStore::default());
     let builder = AgentBuilder::new(
-        Arc::clone(&store),
+        Arc::new(crate::adapters::llm::factory::Factory::new(Arc::clone(&store))),
         models.clone(),
         tree.workspace(),
         AgentContext::new(tree.path()).with_budget(budget),
@@ -50,6 +51,7 @@ fn over_budget(fake: FakeClient, tree: &TempTree) -> Harness {
     personas.add(Persona::new("root", "Root", "").with_model(Model::reference("ollama", "m"))).unwrap();
     Harness::new(Services {
         builder,
+        clock: Arc::new(crate::application::ports::SystemClock),
         credentials: store,
         files: Arc::new(FileReferences::new(tree.workspace())),
         logins: LoginAttempt::new(Box::new(ScriptedLoginWorker::new()), Arc::new(CredentialStore::in_memory())),

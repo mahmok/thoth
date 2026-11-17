@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 use similar::TextDiff;
 
 use crate::adapters::workspace::{Workspace, truncate};
-use crate::runtime::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, blocking};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, blocking};
 
 /// Lines of context around a change in the diff.
 const CONTEXT_LINES: usize = 3;

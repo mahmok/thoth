@@ -10,17 +10,16 @@ use serde_json::{Value, json};
 use tokio::time;
 
 use super::*;
-use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::adapters::context::AgentContext;
-use crate::adapters::llm::client::chat::Role;
 use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::fake;
 use crate::adapters::llm::client::fake::Client as FakeClient;
-use crate::adapters::llm::client::protocol::ProtocolClient;
 use crate::domain::conversation::budget::Budget;
+use crate::domain::message::Role;
+use crate::domain::tool::Outcome as ToolResult;
 use crate::runtime::agent::tests::{Echo, EchoArgs, build, call, calls, test_model, text};
 use crate::runtime::agent::{AgentChange, DEFAULT_MAX_STEPS};
-use crate::runtime::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, Traits as ToolTraits};
 use crate::runtime::tools::tool_set::ToolSet;
 use crate::test::assert_empty;
 
@@ -214,9 +213,8 @@ fn agent_with_tool(tool: impl Tool, script: Vec<Result<StreamedCompletion, Clien
     let mut tools = ToolSet::new();
     tools.register(tool).unwrap();
     let fake = FakeClient::new(script);
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
+    let agent = Agent::new(Arc::new(crate::adapters::llm::client::fake::Factory::new(fake.clone())))
         .with_model(test_model())
-        .with_client(ProtocolClient::Fake(fake.clone()))
         .with_tools(tools);
     (agent, fake)
 }
@@ -226,9 +224,8 @@ fn with_peek(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, Fa
     tools.register(Echo).unwrap();
     tools.register(Peek).unwrap();
     let fake = FakeClient::new(script);
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
+    let agent = Agent::new(Arc::new(crate::adapters::llm::client::fake::Factory::new(fake.clone())))
         .with_model(test_model())
-        .with_client(ProtocolClient::Fake(fake.clone()))
         .with_tools(tools);
     (agent, fake)
 }
@@ -300,9 +297,8 @@ async fn offers_the_tool_set_and_sends_results_back() {
 #[tokio::test]
 async fn an_agent_without_tools_offers_none() {
     let fake = FakeClient::new(vec![text("hi")]);
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
-        .with_model(test_model())
-        .with_client(ProtocolClient::Fake(fake.clone()));
+    let agent =
+        Agent::new(Arc::new(crate::adapters::llm::client::fake::Factory::new(fake.clone()))).with_model(test_model());
     agent.respond("hello".into(), |_| {}).await.unwrap();
     assert_empty(&fake.requests()[0].1);
 }
@@ -363,9 +359,8 @@ async fn an_interrupt_between_calls_still_records_the_calls_that_ran() {
         ("a", "cancel_parent", r#"{"text":"x"}"#),
         ("b", "echo", r#"{"text":"later"}"#),
     ])]);
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
+    let agent = Agent::new(Arc::new(crate::adapters::llm::client::fake::Factory::new(fake)))
         .with_model(test_model())
-        .with_client(ProtocolClient::Fake(fake))
         .with_tools(tools);
     let result = agent.respond_under(&parent, "go".into(), |_| {}).await;
     assert!(matches!(result, Err(Failure::Interrupted)));
@@ -816,7 +811,7 @@ async fn the_system_prompt_is_kept_across_turns() {
 
 #[tokio::test]
 async fn an_agent_without_a_model_says_how_to_get_one_and_keeps_the_conversation_clean() {
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()));
+    let agent = Agent::new(Arc::new(crate::adapters::llm::client::fake::Factory::new(FakeClient::default())));
     assert_eq!(agent.model(), None);
     let err = agent.respond("hi".into(), |_| {}).await.err().unwrap();
     assert!(matches!(err, Failure::NoModel));

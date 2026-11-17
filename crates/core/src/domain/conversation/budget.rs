@@ -1,4 +1,16 @@
-use crate::utils::numbers;
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::float_arithmetic,
+    reason = "token counts are estimates: precision lost above 2^24 does not matter, and `as` saturates"
+)]
+#[inline]
+/// `count` scaled by `factor`, rounded down and never below zero.
+fn scaled(count: usize, factor: f32) -> usize {
+    (count as f32 * factor) as usize
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// How much context the Conversation may use.
@@ -52,7 +64,7 @@ impl Compaction {
     /// The context size at which compaction starts: the lower of the budget and the model's share.
     pub fn threshold(&self, context_limit: Option<u32>) -> usize {
         context_limit.map_or(self.budget, |limit| {
-            self.budget.min(numbers::scaled(usize::try_from(limit).unwrap_or(usize::MAX), self.limit_share))
+            self.budget.min(scaled(usize::try_from(limit).unwrap_or(usize::MAX), self.limit_share))
         })
     }
 }
@@ -93,7 +105,7 @@ impl Load {
     #[must_use]
     #[inline]
     pub fn tokens(self, calibration: f32) -> usize {
-        numbers::scaled(self.raw(), calibration)
+        scaled(self.raw(), calibration)
     }
 }
 

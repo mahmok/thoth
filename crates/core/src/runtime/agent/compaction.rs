@@ -1,13 +1,14 @@
-use crate::adapters::llm::client::chat::{Message, Role, Usage};
 use crate::adapters::llm::client::error::Failure as ClientError;
-use crate::adapters::llm::client::protocol::ProtocolClient;
-use crate::adapters::llm::client::{CreateCompletionRequest, Llm as _, StreamedCompletion, ToolChoice, ToolSpec};
+use crate::adapters::llm::client::{CreateCompletionRequest, StreamedCompletion, ToolChoice, ToolSpec};
+use crate::application::ports::ModelClient;
 use crate::domain::conversation::budget::Elision;
 use crate::domain::conversation::elision::elide_messages;
 use crate::domain::conversation::{Conversation, message_tokens};
+use crate::domain::message::{Message, Role};
+use crate::domain::shared::Usage;
+use crate::domain::tool::Outcome as ToolResult;
 use crate::runtime::agent::sub_agents::SubAgentInfo;
 use crate::runtime::agent::{Agent, AgentEvent, COMPACTION_CALL_ID, Failure as AgentError};
-use crate::runtime::tools::tool::Outcome as ToolResult;
 use core::fmt::Write as _;
 
 /// The prefix of a summary message.
@@ -59,7 +60,7 @@ impl Agent {
     /// Requests a summary, eliding everything first if the context overflows.
     async fn ask_for_summary(
         &self,
-        client: &ProtocolClient,
+        client: &dyn ModelClient,
         conversation: &mut Conversation,
         cut: usize,
         instruction: &str,
@@ -117,13 +118,13 @@ impl Agent {
 
     async fn request_summary(
         &self,
-        client: &ProtocolClient,
+        client: &dyn ModelClient,
         messages: &[Message],
         tool_choice: ToolChoice,
     ) -> Result<StreamedCompletion, ClientError> {
         let definitions: Vec<ToolSpec> = self.tools().definitions().cloned().collect();
         let request = CreateCompletionRequest { messages, tools: &definitions, thinking: self.thinking(), tool_choice };
-        client.create_completion_stream(request, |_| {}).await
+        client.create_completion_stream(request, &mut |_| {}).await
     }
 
     /// Gets a summary of the Conversation up to `cut`, asking again without Tools if the model calls one.
@@ -136,7 +137,7 @@ impl Agent {
         let client = self.client()?;
         let instruction = instruction(focus, &self.sub_agents().infos());
         let mut completion = self
-            .ask_for_summary(&client, conversation, cut, &instruction, ToolChoice::Auto)
+            .ask_for_summary(&*client, conversation, cut, &instruction, ToolChoice::Auto)
             .await
             .map_err(AgentError::Client)?;
         // A model that calls a tool instead of summarising is asked again, with tools forbidden.
@@ -144,7 +145,7 @@ impl Agent {
         // and the first request is the one that reads that cache.
         if completion.text.trim().is_empty() && !completion.tool_calls.is_empty() {
             completion = self
-                .ask_for_summary(&client, conversation, cut, &instruction, ToolChoice::None)
+                .ask_for_summary(&*client, conversation, cut, &instruction, ToolChoice::None)
                 .await
                 .map_err(AgentError::Client)?;
         }
@@ -268,7 +269,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_model_that_calls_a_tool_instead_of_summarising_is_asked_again_without_tools() {
-        use crate::adapters::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
+        use crate::domain::message::{FunctionCall, ToolCall, ToolCallKind};
         let tool_call = Ok(StreamedCompletion {
             tool_calls: vec![ToolCall {
                 id: "c".into(),
@@ -391,14 +392,16 @@ mod tests {
 
     #[tokio::test]
     async fn compacting_keeps_the_sub_agents_running() {
-        use crate::adapters::auth::store::Credentials as CredentialStore;
-        use crate::adapters::persona::Persona;
+        use crate::adapters::llm::client::fake;
+        use crate::domain::persona::Persona;
         use alloc::sync::Arc;
 
         let (agent, _) = agent(usize::MAX, vec![text("a"), text("b"), text("gist")]);
         agent
             .sub_agents()
-            .spawn(&Persona::new("tester", "Tester", ""), || Agent::new(Arc::new(CredentialStore::in_memory())))
+            .spawn(&Persona::new("tester", "Tester", ""), || {
+                Agent::new(Arc::new(fake::Factory::new(FakeClient::default())))
+            })
             .unwrap();
         for prompt in ["1", "2"] {
             agent.respond(prompt.into(), |_| {}).await.unwrap();

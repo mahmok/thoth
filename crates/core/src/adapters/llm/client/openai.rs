@@ -3,10 +3,12 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::adapters::auth::Auth;
+use crate::domain::message::Message;
+use crate::domain::shared::Usage;
 use crate::domain::thinking::Thinking;
 
 use super::body::Common;
-use super::chat::{CompletionChunk as ChatCompletionChunk, Message, ToolCallBuffer, Usage};
+use super::chat::{CompletionChunk as ChatCompletionChunk, ToolCallBuffer};
 use super::stream;
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, Negotiation, StreamedCompletion, ToolSpec};
 

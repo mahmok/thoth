@@ -195,7 +195,7 @@ mod tests {
     use crossterm::event::{KeyModifiers, MouseButton};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use thoth_core::runtime::tools::tool::Outcome as ToolResult;
+    use thoth_core::domain::tool::Outcome as ToolResult;
 
     const WIDTH: u16 = 30;
     const HEIGHT: u16 = 8;
@@ -208,7 +208,12 @@ mod tests {
 
     impl Chat {
         fn apply(&mut self, event: AgentEvent) {
-            if let Some(change) = self.transcript.agent_event(event) {
+            let change = thoth_core::application::session::projector::change(
+                &self.transcript,
+                event,
+                thoth_core::clock::now_ms(),
+            );
+            if let Some(change) = change {
                 self.transcript.apply(&change);
             }
         }

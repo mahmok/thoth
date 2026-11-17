@@ -1,5 +1,3 @@
-use crate::adapters::llm::client::chat;
-
 /// One Turn's token usage, as a client shows it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Usage {
@@ -7,17 +5,6 @@ pub struct Usage {
     pub cached_tokens: u32,
     pub completion_tokens: u32,
     pub prompt_tokens: u32,
-}
-
-impl From<chat::Usage> for Usage {
-    #[inline]
-    fn from(usage: chat::Usage) -> Self {
-        Self {
-            prompt_tokens: usage.prompt_tokens,
-            completion_tokens: usage.completion_tokens,
-            cached_tokens: usage.cached_tokens,
-        }
-    }
 }
 
 /// Token usage totals for a Session's Turns.
@@ -36,14 +23,13 @@ pub struct Stats {
 impl Stats {
     #[inline]
     /// Counts a request and adds its token usage.
-    pub fn record(&mut self, usage: Option<chat::Usage>) {
+    pub fn record(&mut self, usage: Option<Usage>) {
         self.requests = self.requests.saturating_add(1);
         if let Some(reported) = usage {
-            let converted = Usage::from(reported);
-            self.prompt_tokens = self.prompt_tokens.saturating_add(u64::from(converted.prompt_tokens));
-            self.cached_tokens = self.cached_tokens.saturating_add(u64::from(converted.cached_tokens));
-            self.completion_tokens = self.completion_tokens.saturating_add(u64::from(converted.completion_tokens));
-            self.last = Some(converted);
+            self.prompt_tokens = self.prompt_tokens.saturating_add(u64::from(reported.prompt_tokens));
+            self.cached_tokens = self.cached_tokens.saturating_add(u64::from(reported.cached_tokens));
+            self.completion_tokens = self.completion_tokens.saturating_add(u64::from(reported.completion_tokens));
+            self.last = Some(reported);
         }
     }
 
@@ -58,13 +44,8 @@ impl Stats {
 mod tests {
     use super::*;
 
-    fn usage(prompt: u32, completion: u32, cached: u32) -> chat::Usage {
-        chat::Usage {
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-            total_tokens: prompt.saturating_add(completion),
-            cached_tokens: cached,
-        }
+    fn usage(prompt: u32, completion: u32, cached: u32) -> Usage {
+        Usage { prompt_tokens: prompt, completion_tokens: completion, cached_tokens: cached }
     }
 
     #[test]

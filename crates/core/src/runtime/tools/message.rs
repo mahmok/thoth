@@ -6,7 +6,8 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
+use super::tool::{Description, Tool, ToolContext, Traits as ToolTraits};
+use crate::domain::tool::Outcome as ToolResult;
 use crate::runtime::agent::sub_agents::SubAgents;
 use crate::runtime::agent_builder::AgentBuilder;
 

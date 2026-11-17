@@ -1,11 +1,9 @@
 use crate::adapters::config::dir;
 use crate::adapters::fsutil::read_markdown_with_frontmatter;
-use crate::domain::provider::Model;
-use crate::domain::thinking::Thinking;
+use crate::domain::persona::{Persona, is_valid_key};
 use alloc::collections::BTreeMap;
 use core::error;
 use core::fmt;
-use serde::Deserialize;
 use serde_saphyr::from_str;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -16,97 +14,22 @@ const ASSISTANT_FILE: &str = "assistant.md";
 /// The built-in assistant Persona.
 const ASSISTANT: &str = include_str!("persona/assistant.md");
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Default)]
-pub enum Selection {
-    #[default]
-    All,
-    Only(Vec<String>),
-}
+/// Reads a Persona from a Markdown file with YAML frontmatter.
+///
+/// # Errors
+///
+/// Fails if the file cannot be read or its frontmatter is missing or invalid.
+pub async fn from_markdown_file(path: &Path) -> Result<Persona, Failure> {
+    let (frontmatter, content) =
+        read_markdown_with_frontmatter(path).await.map_err(|e| Failure::Io { path: path.to_path_buf(), source: e })?;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Persona {
-    pub description: String,
-    pub key: String,
-    pub model: Option<Model>,
-    pub name: String,
-    pub system_prompt: Option<String>,
-    pub thinking: Option<Thinking>,
-    pub tools: Selection,
-    #[serde(default)]
-    pub skills: Selection,
-}
+    let header = frontmatter.ok_or_else(|| Failure::MissingFrontmatter(path.to_path_buf()))?;
 
-impl Persona {
-    #[inline]
-    /// Reads a Persona from a Markdown file with YAML frontmatter.
-    ///
-    /// # Errors
-    ///
-    /// Fails if the file cannot be read or its frontmatter is missing or invalid.
-    pub async fn from_markdown_file(path: &Path) -> Result<Self, Failure> {
-        let (frontmatter, content) = read_markdown_with_frontmatter(path)
-            .await
-            .map_err(|e| Failure::Io { path: path.to_path_buf(), source: e })?;
+    let persona: Persona =
+        from_str(&header).map_err(|e| Failure::InvalidFrontmatter { path: path.to_path_buf(), source: Box::new(e) })?;
 
-        let header = frontmatter.ok_or_else(|| Failure::MissingFrontmatter(path.to_path_buf()))?;
-
-        let persona: Self = from_str(&header)
-            .map_err(|e| Failure::InvalidFrontmatter { path: path.to_path_buf(), source: Box::new(e) })?;
-
-        let body = content.trim();
-        if body.is_empty() { Ok(persona) } else { Ok(persona.with_system_prompt(body)) }
-    }
-
-    #[must_use]
-    #[inline]
-    /// Creates a Persona with no prompt, all Tools and no model.
-    pub fn new(key: &str, name: &str, description: &str) -> Self {
-        Self {
-            key: key.to_owned(),
-            name: name.to_owned(),
-            description: description.to_owned(),
-            system_prompt: None,
-            tools: Selection::All,
-            model: None,
-            thinking: None,
-            skills: Selection::All,
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn with_model(mut self, model: Model) -> Self {
-        self.model = Some(model);
-        self
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn with_system_prompt(mut self, prompt: &str) -> Self {
-        self.system_prompt = Some(prompt.to_owned());
-        self
-    }
-
-    #[must_use]
-    #[inline]
-    pub const fn with_thinking(mut self, thinking: Thinking) -> Self {
-        self.thinking = Some(thinking);
-        self
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn with_tools(mut self, tools: Selection) -> Self {
-        self.tools = tools;
-        self
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn with_skills(mut self, skills: Selection) -> Self {
-        self.skills = skills;
-        self
-    }
+    let body = content.trim();
+    if body.is_empty() { Ok(persona) } else { Ok(persona.with_system_prompt(body)) }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,7 +168,7 @@ impl Repository {
         }
 
         for path in paths {
-            let persona = Persona::from_markdown_file(&path).await?;
+            let persona = from_markdown_file(&path).await?;
             self.add(persona)?;
         }
 
@@ -259,16 +182,12 @@ impl Repository {
     }
 }
 
-fn is_valid_key(key: &str) -> bool {
-    !key.is_empty()
-        && !key.starts_with('-')
-        && key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::persona::Selection;
     use crate::domain::provider::{Model, Protocol};
+    use crate::domain::thinking::Thinking;
     use crate::test::temp_tree::TempTree;
     use std::fs;
 

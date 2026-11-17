@@ -12,7 +12,8 @@ use tokio::process::Command;
 use tokio::task::JoinHandle;
 
 use crate::adapters::workspace::Workspace;
-use crate::runtime::tools::tool::{Description, Outcome as ToolResult, ToolContext};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, ToolContext};
 use crate::sync::MutexExt as _;
 
 /// How much of each stream's start and end is kept. The start usually holds the first (and most

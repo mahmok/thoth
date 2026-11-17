@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::budget::Elision;
 use super::{Conversation, tokens};
-use crate::adapters::llm::client::chat::{Message, Role};
+use crate::domain::message::{Message, Role};
 
 /// The start of the note left where output was dropped.
 const NOTE: &str = r#"{"elided":"#;
@@ -111,9 +111,8 @@ fn elidable<'message>(
 mod tests {
     use super::super::tests::call;
     use super::*;
-    use crate::adapters::llm::client::chat::Reasoning;
-    use crate::runtime::tools::tool::Outcome as ToolResult;
-    use crate::runtime::types::AgentMessage;
+    use crate::domain::message::{AgentMessage, Reasoning};
+    use crate::domain::tool::Outcome as ToolResult;
 
     fn rules() -> Elision {
         Elision { trigger: 25_000, target: 12_500, smallest: 250 }

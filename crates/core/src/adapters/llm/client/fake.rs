@@ -4,6 +4,9 @@ use std::sync::Mutex;
 use tokio::task;
 
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, StreamedCompletion, ToolChoice, ToolSpec};
+use crate::application::ports::{ClientFactory, ModelClient};
+use crate::domain::provider::ModelSpec;
+use crate::domain::shared::SessionId;
 use crate::sync::MutexExt as _;
 
 /// The replies a fake client gives.
@@ -67,6 +70,28 @@ impl LlmClient for Client {
             on_delta(Delta::Text(&next.text));
         }
         Ok(next)
+    }
+}
+
+#[derive(Debug)]
+/// A test factory: every model gets the same scripted client, so production code carries no test
+/// path.
+pub struct Factory {
+    client: Client,
+}
+
+impl Factory {
+    #[must_use]
+    #[inline]
+    pub const fn new(client: Client) -> Self {
+        Self { client }
+    }
+}
+
+impl ClientFactory for Factory {
+    #[inline]
+    fn client_for(&self, _spec: &ModelSpec, _session: SessionId) -> Result<Arc<dyn ModelClient>, String> {
+        Ok(Arc::new(self.client.clone()))
     }
 }
 

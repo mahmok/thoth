@@ -26,15 +26,10 @@ pub fn summary(stats: &Stats) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thoth_core::adapters::llm::client::chat::Usage;
+    use thoth_core::application::session::stats::Usage;
 
     fn usage(prompt: u32, completion: u32) -> Usage {
-        Usage {
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-            total_tokens: prompt.saturating_add(completion),
-            ..Default::default()
-        }
+        Usage { prompt_tokens: prompt, completion_tokens: completion, cached_tokens: 0 }
     }
 
     #[test]

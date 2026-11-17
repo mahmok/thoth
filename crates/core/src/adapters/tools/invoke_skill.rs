@@ -1,5 +1,6 @@
 use crate::adapters::skills::SkillSet;
-use crate::runtime::tools::tool::{Description, Outcome, Tool, ToolContext, Traits as ToolTraits, blocking};
+use crate::domain::tool::Outcome;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, Traits as ToolTraits, blocking};
 use serde::Deserialize;
 use serde_json::{Value, json};
 

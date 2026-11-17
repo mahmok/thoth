@@ -9,6 +9,7 @@ use crate::adapters::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::adapters::workspace::Workspace;
 use crate::application::login::LoginAttempt;
 use crate::application::model_refresh::ModelRefreshRun;
+use crate::application::ports::SystemClock;
 use crate::domain::provider::Provider;
 
 use crate::adapters::context::AgentContext;
@@ -59,8 +60,9 @@ impl Scripted {
     pub fn services(&self, models: Arc<InMemoryModelsStore>) -> Services {
         Services {
             personas: PersonaRepository::new(),
+            clock: Arc::new(SystemClock),
             builder: AgentBuilder::new(
-                Arc::clone(&self.store),
+                Arc::new(crate::adapters::llm::factory::Factory::new(Arc::clone(&self.store))),
                 models.clone(),
                 self.workspace.clone(),
                 AgentContext::new(self.workspace.root()),

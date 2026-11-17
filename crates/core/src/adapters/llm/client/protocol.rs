@@ -11,15 +11,10 @@ use super::openai::{OpenAiClient, OpenAiConfig};
 use super::responses::{Client as ResponsesClient, Config as ResponsesConfig};
 use super::{ClientError, CreateCompletionRequest, Delta, Llm as LlmClient, StreamedCompletion};
 
-#[cfg(any(test, feature = "testing"))]
-use super::fake::Client as FakeClient;
-
 #[derive(Debug)]
 /// The protocol client of one Model: its dialect, resolved to the provider's endpoint.
 pub enum ProtocolClient {
     Anthropic(AnthropicClient),
-    #[cfg(any(test, feature = "testing"))]
-    Fake(FakeClient),
     Google(GoogleClient),
     OpenAi(OpenAiClient),
     Responses(ResponsesClient),
@@ -61,8 +56,6 @@ impl LlmClient for ProtocolClient {
             Self::Anthropic(ref client) => client.create_completion_stream(request, on_delta).await,
             Self::Google(ref client) => client.create_completion_stream(request, on_delta).await,
             Self::Responses(ref client) => client.create_completion_stream(request, on_delta).await,
-            #[cfg(any(test, feature = "testing"))]
-            Self::Fake(ref client) => client.create_completion_stream(request, on_delta).await,
         }
     }
 }
@@ -70,7 +63,7 @@ impl LlmClient for ProtocolClient {
 #[cfg(test)]
 mod live_tests {
     use super::*;
-    use crate::adapters::llm::client::chat::Message;
+    use crate::domain::message::Message;
 
     async fn ask(spec: &ModelSpec) -> StreamedCompletion {
         let messages = [Message::system("Answer in one word."), Message::user("Say hi.")];

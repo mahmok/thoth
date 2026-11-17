@@ -7,7 +7,6 @@ use crate::adapters::auth::flow::LoginEvent;
 use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::adapters::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::adapters::files::FileReferences;
-use crate::adapters::llm::client::chat::Usage;
 use crate::adapters::models::store::InMemory as InMemoryModelsStore;
 use crate::adapters::models::store::Models as ModelsStore;
 use crate::adapters::models::testing::scripted::Worker as ScriptedRefreshWorker;
@@ -17,11 +16,12 @@ use crate::application::model_refresh;
 use crate::application::session::view::Login as LoginView;
 use crate::domain::provider::Provider;
 use crate::domain::provider::{Model, ModelSpec, Protocol};
+use crate::domain::shared::Usage;
 use crate::domain::thinking::Thinking;
+use crate::domain::tool::Outcome as ToolResult;
 use crate::domain::transcript::Content;
 use crate::domain::transcript::tool_call::ToolStatus;
 use crate::runtime::agent::AgentEvent;
-use crate::runtime::tools::tool::Outcome as ToolResult;
 use crate::runtime::turn_runner::scripted::ScriptedTurnRunner;
 use crate::test::assert_empty;
 use crate::test::scripted::Scripted;
@@ -763,7 +763,8 @@ fn notices_belong_to_no_session() {
 
 #[test]
 fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
-    use crate::adapters::persona::{Info as PersonaInfo, Persona};
+    use crate::adapters::persona::Info as PersonaInfo;
+    use crate::domain::persona::Persona;
 
     let scripted = Scripted::new(ScriptedTurnRunner::new(), &[]);
     let mut services = scripted.services(fixture());

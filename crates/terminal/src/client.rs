@@ -201,7 +201,7 @@ mod tests {
 
     use super::*;
     use thoth_core::adapters::models::testing::fixture;
-    use thoth_core::adapters::persona::Persona;
+    use thoth_core::domain::persona::Persona;
     use thoth_core::domain::provider::Model;
     use thoth_core::runtime::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::test::scripted::Scripted;

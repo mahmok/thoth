@@ -4,9 +4,8 @@ use serde_json::{Value, json};
 use std::fs;
 
 use crate::adapters::workspace::{Workspace, current_dir};
-use crate::runtime::tools::tool::{
-    Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits, blocking,
-};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, Traits as ToolTraits, blocking};
 
 /// The most entries listed.
 const MAX_ENTRIES: usize = 200;

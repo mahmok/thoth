@@ -25,8 +25,8 @@ use std::sync::LazyLock;
 use reqwest::{Method, Response, StatusCode};
 use serde::Serialize;
 
-use crate::adapters::llm::client::chat::Message;
 use crate::adapters::llm::client::error::Failure as ClientError;
+use crate::domain::message::Message;
 use crate::domain::provider::{AuthHeader, LoginMethod, ModelSpec, Protocol, Provider};
 use crate::domain::shared::SessionId;
 
