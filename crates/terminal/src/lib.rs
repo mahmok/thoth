@@ -51,6 +51,6 @@ use thoth_core::harness::Harness;
 ///
 /// Fails if the terminal cannot be set up or drawn to.
 pub fn run(harness: Harness) -> color_eyre::Result<()> {
-    let client = client::Client::open(harness).map_err(|e| color_eyre::eyre::eyre!(e))?;
+    let client = client::TerminalClient::open(harness).map_err(|e| color_eyre::eyre::eyre!(e))?;
     app::TerminalApp::new(client).run()
 }

@@ -14,7 +14,7 @@ use thoth_core::session::SessionId;
 use thoth_core::test::scripted::Scripted;
 
 use crate::app::TerminalApp;
-use crate::client::Client;
+use crate::client::TerminalClient;
 
 /// The width the app is drawn at, wide enough for a full footer and a wrapped chat.
 pub const WIDTH: u16 = 100;
@@ -41,7 +41,7 @@ impl Harness {
         }
         scripted.files.wait();
         Self {
-            app: TerminalApp::new(Client::open(harness).unwrap()),
+            app: TerminalApp::new(TerminalClient::open(harness).unwrap()),
             scripted,
             terminal: Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap(),
             now: 0,

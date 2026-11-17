@@ -2,7 +2,7 @@
 //! or which key asked for it.
 
 use super::TerminalApp;
-use crate::client::Client;
+use crate::client::TerminalClient;
 use crate::command::{self, Ran};
 use crate::picker::Catalog;
 use thoth_core::builtin::files::{FILE_TRIGGER, Suggestions};
@@ -35,7 +35,7 @@ impl TerminalApp {
 }
 
 /// The pickers' lists, asked of the Session only when a picker opens.
-pub(super) struct SessionCatalog<'client>(pub(super) &'client Client);
+pub(super) struct SessionCatalog<'client>(pub(super) &'client TerminalClient);
 
 impl Catalog for SessionCatalog<'_> {
     fn commands(&mut self) -> Option<Vec<command::Command>> {

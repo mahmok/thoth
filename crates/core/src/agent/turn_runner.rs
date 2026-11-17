@@ -118,10 +118,10 @@ mod tests {
     use crate::agent::{Agent, Event as AgentEvent};
     use crate::auth::store::Credentials as CredentialStore;
     use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::any::Client as AnyClient;
     use crate::llm::client::error::Failure as ClientError;
     use crate::llm::client::fake;
     use crate::llm::client::fake::Client as FakeClient;
+    use crate::llm::client::protocol::ProtocolClient;
     use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use tokio::time;
@@ -129,7 +129,7 @@ mod tests {
     fn runner(script: Vec<Result<StreamedCompletion, ClientError>>) -> TokioTurnRunner {
         let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
             .with_model(ModelSpec::new(Arc::new(Provider::builtin("ollama").unwrap()), Model::new("m")))
-            .with_client(AnyClient::Fake(FakeClient::new(script)));
+            .with_client(ProtocolClient::Fake(FakeClient::new(script)));
         TokioTurnRunner::new(Arc::new(agent))
     }
 

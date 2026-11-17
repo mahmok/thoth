@@ -69,7 +69,7 @@ pub fn build(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, Fa
     let fake = FakeClient::new(script);
     let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
         .with_model(test_model())
-        .with_client(AnyClient::Fake(fake.clone()))
+        .with_client(ProtocolClient::Fake(fake.clone()))
         .with_tools(tools);
     (agent, fake)
 }

@@ -15,12 +15,12 @@ use thoth_core::transcript::Speaker;
 /// The façade exposes what the app and the command layer call, and nothing else: in
 /// particular it offers no way to close a session except [`close`](Self::close), which moves
 /// the view first, so "the viewed session exists" cannot be bypassed.
-pub struct Client {
+pub struct TerminalClient {
     harness: Harness,
     session: SessionId,
 }
 
-impl Client {
+impl TerminalClient {
     /// Abandons a login in progress and interrupts the viewed session's turn.
     pub fn cancel(&mut self) {
         self.harness.cancel_login();
@@ -207,18 +207,18 @@ mod tests {
     use thoth_core::test::scripted::Scripted;
 
     /// A façade over a harness with one session that a `helper` persona can add to.
-    fn client() -> Client {
+    fn client() -> TerminalClient {
         let scripted = Scripted::new(ScriptedTurnRunner::new(), &[]);
         let mut services = scripted.services(fixture());
         services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
         let mut harness = Harness::new(services);
         harness.start_session_with(SessionId::mint(), Box::new(Rc::clone(&scripted.agent)));
-        Client::open(harness).unwrap()
+        TerminalClient::open(harness).unwrap()
     }
 
     /// The invariant every exposed path must keep: the viewed id names a session that exists
     /// and can be viewed.
-    fn views_a_session(client: &Client) -> bool {
+    fn views_a_session(client: &TerminalClient) -> bool {
         let viewed = client.session_id();
         let consistent = client.sessions().iter().any(|&(id, _)| id == viewed);
         let _view = client.view();

@@ -1,7 +1,5 @@
 /// The Anthropic Messages client.
 pub mod anthropic;
-/// A client of any protocol.
-pub mod any;
 /// The fields every request body shares.
 mod body;
 /// Chat messages and completions.
@@ -19,6 +17,8 @@ mod lowering;
 /// Falling back to settings a model accepts.
 mod negotiation;
 pub mod openai;
+/// The client of a provider's protocol.
+pub mod protocol;
 pub mod responses;
 /// Server-sent event framing.
 mod sse;

@@ -25,9 +25,9 @@ use crate::agent::sub_agents::SubAgents;
 use crate::agent::tools::tool::Outcome as ToolResult;
 use crate::agent::tools::tool_set::ToolSet;
 use crate::auth::store::Credentials as CredentialStore;
-use crate::llm::client::any::Client as AnyClient;
 use crate::llm::client::chat::Usage;
 use crate::llm::client::error::Failure as ClientError;
+use crate::llm::client::protocol::ProtocolClient;
 use crate::llm::provider::ModelSpec;
 use crate::llm::thinking::Thinking;
 use crate::session::SessionId;
@@ -172,7 +172,7 @@ impl Drop for ActiveGuard<'_> {
 #[derive(Debug)]
 /// A model and its client, or the reason its protocol has no client.
 struct Current {
-    client: Result<Arc<AnyClient>, String>,
+    client: Result<Arc<ProtocolClient>, String>,
     spec: ModelSpec,
 }
 
@@ -226,7 +226,7 @@ impl Agent {
         )
     }
 
-    fn client(&self) -> Result<Arc<AnyClient>, Failure> {
+    fn client(&self) -> Result<Arc<ProtocolClient>, Failure> {
         let current = self.current.read_unpoisoned();
         let client = match current.as_ref().ok_or(Failure::NoModel)?.client {
             Ok(ref client) => Ok(Arc::clone(client)),
@@ -346,7 +346,8 @@ impl Agent {
     #[inline]
     /// Switches to `spec`, with a client of its own, and restarts token calibration.
     fn set_model(&self, spec: ModelSpec) {
-        let client = AnyClient::for_model(&spec, &self.store, self.session).map(Arc::new).map_err(|e| e.to_string());
+        let client =
+            ProtocolClient::for_model(&spec, &self.store, self.session).map(Arc::new).map_err(|e| e.to_string());
         *self.current.write_unpoisoned() = Some(Current { client, spec });
         // Another model counts tokens its own way.
         *self.calibration.lock_unpoisoned() = 1.0;
@@ -387,7 +388,7 @@ impl Agent {
     #[inline]
     /// Replaces the client of the current model, for tests.
     #[must_use]
-    pub fn with_client(self, client: AnyClient) -> Self {
+    pub fn with_client(self, client: ProtocolClient) -> Self {
         if let Some(current) = self.current.write_unpoisoned().as_mut() {
             current.client = Ok(Arc::new(client));
         }

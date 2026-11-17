@@ -221,11 +221,11 @@ mod tests {
     use crate::agent::skills::SkillSet;
     use crate::auth::store::Credentials as CredentialStore;
     use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::any::Client as AnyClient;
     use crate::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind, Usage};
     use crate::llm::client::error::Failure as ClientError;
     use crate::llm::client::fake;
     use crate::llm::client::fake::Client as FakeClient;
+    use crate::llm::client::protocol::ProtocolClient;
     use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use crate::test::assert_empty;
@@ -250,7 +250,7 @@ mod tests {
     /// A Sub-agent whose model replies are `script`.
     fn scripted(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, FakeClient) {
         let fake = FakeClient::new(script);
-        let agent = agent().with_model(spec("sub")).with_client(AnyClient::Fake(fake.clone()));
+        let agent = agent().with_model(spec("sub")).with_client(ProtocolClient::Fake(fake.clone()));
         (agent, fake)
     }
 

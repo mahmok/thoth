@@ -18,11 +18,11 @@ use crate::agent::tools::tool::{
 use crate::agent::tools::tool_set::ToolSet;
 use crate::agent::{Change, DEFAULT_MAX_STEPS};
 use crate::auth::store::Credentials as CredentialStore;
-use crate::llm::client::any::Client as AnyClient;
 use crate::llm::client::chat::Role;
 use crate::llm::client::error::Failure as ClientError;
 use crate::llm::client::fake;
 use crate::llm::client::fake::Client as FakeClient;
+use crate::llm::client::protocol::ProtocolClient;
 use crate::test::assert_empty;
 
 /// Like `Echo`, but it changes nothing, so calls to it may run together.
@@ -217,7 +217,7 @@ fn agent_with_tool(tool: impl Tool, script: Vec<Result<StreamedCompletion, Clien
     let fake = FakeClient::new(script);
     let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
         .with_model(test_model())
-        .with_client(AnyClient::Fake(fake.clone()))
+        .with_client(ProtocolClient::Fake(fake.clone()))
         .with_tools(tools);
     (agent, fake)
 }
@@ -229,7 +229,7 @@ fn with_peek(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, Fa
     let fake = FakeClient::new(script);
     let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
         .with_model(test_model())
-        .with_client(AnyClient::Fake(fake.clone()))
+        .with_client(ProtocolClient::Fake(fake.clone()))
         .with_tools(tools);
     (agent, fake)
 }
@@ -301,7 +301,7 @@ async fn an_agent_without_tools_offers_none() {
     let fake = FakeClient::new(vec![text("hi")]);
     let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
         .with_model(test_model())
-        .with_client(AnyClient::Fake(fake.clone()));
+        .with_client(ProtocolClient::Fake(fake.clone()));
     agent.respond("hello".into(), |_| {}).await.unwrap();
     assert_empty(&fake.requests()[0].1);
 }
@@ -364,7 +364,7 @@ async fn an_interrupt_between_calls_still_records_the_calls_that_ran() {
     ])]);
     let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
         .with_model(test_model())
-        .with_client(AnyClient::Fake(fake))
+        .with_client(ProtocolClient::Fake(fake))
         .with_tools(tools);
     let result = agent.respond_under(&parent, "go".into(), |_| {}).await;
     assert!(matches!(result, Err(Failure::Interrupted)));

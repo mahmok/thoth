@@ -1,5 +1,5 @@
 #[cfg(any(test, feature = "testing"))]
-use crate::llm::client::any::Client as AnyClient;
+use crate::llm::client::protocol::ProtocolClient;
 use alloc::sync::Arc;
 
 use std::collections::HashMap;
@@ -171,7 +171,7 @@ impl AgentBuilder {
     #[cfg(any(test, feature = "testing"))]
     fn with_test_client(&self, agent: Agent) -> Agent {
         match self.fake_client.as_ref() {
-            Some(fake) => agent.with_client(AnyClient::Fake(fake.clone())),
+            Some(fake) => agent.with_client(ProtocolClient::Fake(fake.clone())),
             None => agent,
         }
     }
@@ -197,8 +197,8 @@ fn skills_for(skill_set: &SkillSet, selection: &Selection) -> SkillSet {
 mod tests {
     use super::*;
     use crate::llm::client::StreamedCompletion;
-    use crate::llm::client::any::Client as AnyClient;
     use crate::llm::client::fake::Client as FakeClient;
+    use crate::llm::client::protocol::ProtocolClient;
     use crate::llm::provider::{Model, ModelSpec, Provider};
     use crate::llm::thinking::Thinking;
     use crate::models::store::InMemory as InMemoryModelsStore;
@@ -275,7 +275,7 @@ mod tests {
             .build(
                 &Persona::new("a", "A", "").with_system_prompt("be brief").with_model(Model::reference("ollama", "m")),
             )
-            .with_client(AnyClient::Fake(fake.clone()));
+            .with_client(ProtocolClient::Fake(fake.clone()));
         agent.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(fake.requests()[0].0, 2, "the system prompt, then the prompt");
     }
