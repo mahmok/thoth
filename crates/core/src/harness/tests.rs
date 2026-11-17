@@ -12,7 +12,7 @@ use crate::agent::COMPACTION_CALL_ID;
 use crate::agent::context::{Budget, Compaction, Context as AgentContext};
 use crate::agent::skills::SkillSet;
 use crate::agent_builder::AgentBuilder;
-use crate::auth::session::Login as LoginSession;
+use crate::auth::login::LoginAttempt;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::llm::client::StreamedCompletion;
 use crate::llm::client::error::Failure as ClientError;
@@ -51,7 +51,7 @@ fn over_budget(fake: FakeClient, tree: &TempTree) -> Harness {
         builder,
         credentials: store,
         files: Arc::new(FileReferences::new(tree.workspace())),
-        logins: LoginSession::new(Box::new(ScriptedLoginWorker::new()), Arc::new(CredentialStore::in_memory())),
+        logins: LoginAttempt::new(Box::new(ScriptedLoginWorker::new()), Arc::new(CredentialStore::in_memory())),
         models,
         personas,
         refresh: RefreshSession::new(Box::new(ScriptedRefreshWorker::new())),

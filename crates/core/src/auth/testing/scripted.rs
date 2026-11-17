@@ -3,7 +3,7 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 
 use crate::auth::flow::LoginEvent;
-use crate::auth::session::LoginWorker;
+use crate::auth::login::LoginWorker;
 use crate::llm::provider::Provider;
 
 #[derive(Default, Debug)]

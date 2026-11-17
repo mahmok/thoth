@@ -2,7 +2,7 @@ use alloc::rc::Rc;
 use alloc::sync::Arc;
 
 use crate::auth::credential::Credential;
-use crate::auth::session::Login as LoginSession;
+use crate::auth::login::LoginAttempt;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::llm::provider::Provider;
@@ -66,7 +66,7 @@ impl Scripted {
                 AgentContext::new(self.workspace.root()),
                 SkillSet::default(),
             ),
-            logins: LoginSession::new(Box::new(Rc::clone(&self.worker)), Arc::clone(&self.store)),
+            logins: LoginAttempt::new(Box::new(Rc::clone(&self.worker)), Arc::clone(&self.store)),
             refresh: RefreshSession::new(Box::new(Rc::clone(&self.refresh_worker))),
             credentials: Arc::clone(&self.store),
             models,

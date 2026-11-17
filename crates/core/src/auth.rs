@@ -8,8 +8,8 @@ pub mod events;
 pub mod flow;
 /// GitHub device login.
 pub mod github;
-/// A login in progress.
-pub mod session;
+/// A login attempt in progress.
+pub mod login;
 /// Credential storage.
 pub mod store;
 #[cfg(any(test, feature = "testing"))]

@@ -2,7 +2,7 @@
 use crate::agent::controller::Controller as AgentController;
 use crate::agent::controller::TokioAgent as TokioAgentController;
 use crate::agent_builder::AgentBuilder;
-use crate::auth::session::Login as LoginSession;
+use crate::auth::login::LoginAttempt;
 use crate::auth::store::{Credentials as CredentialStore, Source};
 use crate::builtin::files::{FileReferences, Suggestions};
 use crate::llm::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
@@ -57,7 +57,7 @@ pub struct Harness {
     files: Arc<FileReferences>,
     ids: ulid::Generator,
     login: LoginView,
-    logins: LoginSession,
+    logins: LoginAttempt,
     models: Arc<dyn ModelsStore>,
     out: Vec<Event>,
     personas: Arc<PersonaRepository>,
