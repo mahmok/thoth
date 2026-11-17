@@ -8,7 +8,7 @@ use crate::builtin::files::{FileReferences, Suggestions};
 use crate::llm::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
 use crate::llm::thinking::Thinking;
 use crate::models::choices;
-use crate::models::refresh::Session as RefreshSession;
+use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::Models as ModelsStore;
 use crate::notice::Notice;
 use crate::persona::{Info as PersonaInfo, Repository as PersonaRepository};
@@ -61,7 +61,7 @@ pub struct Harness {
     models: Arc<dyn ModelsStore>,
     out: Vec<Event>,
     personas: Arc<PersonaRepository>,
-    refresh: RefreshSession,
+    refresh: ModelRefreshRun,
     sessions: BTreeMap<SessionId, Session>,
 }
 

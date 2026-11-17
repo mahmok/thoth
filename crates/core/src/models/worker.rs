@@ -4,15 +4,14 @@ use crate::background::Background;
 use crate::llm::provider::Provider;
 
 use super::fetch::ModelFetcher;
-use super::refresh;
-use super::refresh::{Event as RefreshEvent, Worker as RefreshWorker};
+use super::model_refresh;
 use super::store::Models as ModelsStore;
 
 #[derive(Debug)]
 /// A refresh worker on tokio.
 pub struct TokioRefresh {
     fetcher: Arc<ModelFetcher>,
-    refresh: Background<RefreshEvent>,
+    refresh: Background<model_refresh::Event>,
     store: Arc<dyn ModelsStore>,
 }
 
@@ -23,12 +22,12 @@ impl TokioRefresh {
     }
 }
 
-impl RefreshWorker for TokioRefresh {
+impl model_refresh::Worker for TokioRefresh {
     #[inline]
     fn start(&self, providers: Vec<Provider>) {
         let (fetcher, store) = (Arc::clone(&self.fetcher), Arc::clone(&self.store));
         self.refresh.start(|events| async move {
-            refresh::run(&providers, &fetcher, store.as_ref(), |event| {
+            model_refresh::run(&providers, &fetcher, store.as_ref(), |event| {
                 let _unused = events.send(event);
             })
             .await;
@@ -36,7 +35,7 @@ impl RefreshWorker for TokioRefresh {
     }
 
     #[inline]
-    fn try_next(&self) -> Option<RefreshEvent> {
+    fn try_next(&self) -> Option<model_refresh::Event> {
         self.refresh.try_next()
     }
 }
@@ -48,6 +47,8 @@ mod tests {
     use super::*;
     use crate::auth::store::Credentials as CredentialStore;
     use crate::auth::testing::MockServer;
+    use crate::models::model_refresh;
+    use crate::models::model_refresh::Worker as _;
     use crate::models::store::InMemory as InMemoryModelsStore;
     use tokio::time;
 
@@ -61,7 +62,7 @@ mod tests {
 
         let mut events = Vec::new();
         time::timeout(Duration::from_secs(5), async {
-            while !events.contains(&RefreshEvent::Finished) {
+            while !events.contains(&model_refresh::Event::Finished) {
                 match worker.try_next() {
                     Some(event) => events.push(event),
                     None => time::sleep(Duration::from_millis(1)).await,
@@ -71,7 +72,10 @@ mod tests {
         .await
         .expect("the refresh should finish");
 
-        assert_eq!(events[0], RefreshEvent::Fetched { provider: Provider::builtin("ollama").unwrap(), count: 1 });
+        assert_eq!(
+            events[0],
+            model_refresh::Event::Fetched { provider: Provider::builtin("ollama").unwrap(), count: 1 }
+        );
         assert_eq!(store.provider("ollama").unwrap().models[0].id, "llama3");
     }
 }

@@ -3,19 +3,19 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 
 use crate::llm::provider::Provider;
-use crate::models::refresh::{Event as RefreshEvent, Worker as RefreshWorker};
+use crate::models::model_refresh;
 
 #[derive(Default, Debug)]
 /// A refresh worker that replays a script.
 pub struct Worker {
-    events: RefCell<VecDeque<RefreshEvent>>,
+    events: RefCell<VecDeque<model_refresh::Event>>,
     started: RefCell<Vec<Vec<Provider>>>,
 }
 
 impl Worker {
     /// Queues `event` as the running refresh would report it.
     #[inline]
-    pub fn event(&self, event: RefreshEvent) {
+    pub fn event(&self, event: model_refresh::Event) {
         self.events.borrow_mut().push_back(event);
     }
 
@@ -31,14 +31,14 @@ impl Worker {
     }
 }
 
-impl RefreshWorker for Rc<Worker> {
+impl model_refresh::Worker for Rc<Worker> {
     #[inline]
     fn start(&self, providers: Vec<Provider>) {
         self.started.borrow_mut().push(providers);
     }
 
     #[inline]
-    fn try_next(&self) -> Option<RefreshEvent> {
+    fn try_next(&self) -> Option<model_refresh::Event> {
         self.events.borrow_mut().pop_front()
     }
 }

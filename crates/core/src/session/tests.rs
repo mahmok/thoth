@@ -15,7 +15,7 @@ use crate::llm::client::chat::Usage;
 use crate::llm::provider::Provider;
 use crate::llm::provider::{Model, ModelSpec, Protocol};
 use crate::llm::thinking::Thinking;
-use crate::models::refresh::Event as RefreshEvent;
+use crate::models::model_refresh::Event as RefreshEvent;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::store::Models as ModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;

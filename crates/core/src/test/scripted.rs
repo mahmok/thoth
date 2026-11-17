@@ -6,7 +6,7 @@ use crate::auth::login::LoginAttempt;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::llm::provider::Provider;
-use crate::models::refresh::Session as RefreshSession;
+use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::workspace::Workspace;
@@ -67,7 +67,7 @@ impl Scripted {
                 SkillSet::default(),
             ),
             logins: LoginAttempt::new(Box::new(Rc::clone(&self.worker)), Arc::clone(&self.store)),
-            refresh: RefreshSession::new(Box::new(Rc::clone(&self.refresh_worker))),
+            refresh: ModelRefreshRun::new(Box::new(Rc::clone(&self.refresh_worker))),
             credentials: Arc::clone(&self.store),
             models,
             files: Arc::clone(&self.files),
