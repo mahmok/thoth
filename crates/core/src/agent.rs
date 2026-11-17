@@ -108,7 +108,7 @@ pub enum AgentChange {
     Interrupt,
     /// Switch to this model.
     SetModel(ModelSpec),
-    /// AgentChange the thinking level.
+    /// Change the thinking level.
     SetThinking(Thinking),
 }
 

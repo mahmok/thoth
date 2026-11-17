@@ -36,7 +36,7 @@ pub enum LoginState {
 }
 
 #[derive(Debug)]
-/// One conversation and its view.
+/// The process manager for one conversation.
 pub struct Session {
     runner: Box<dyn TurnRunner>,
     /// Whether the Agent is working. The Session owns this; [`View::busy`] is derived from it.

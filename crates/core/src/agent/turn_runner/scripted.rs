@@ -11,7 +11,7 @@ use crate::llm::provider::{Model, ModelSpec, Provider};
 use crate::llm::thinking::Thinking;
 
 #[derive(Debug)]
-/// A TurnRunner that replays a script.
+/// A `TurnRunner` that replays a script.
 pub struct ScriptedTurnRunner {
     cleared: Cell<usize>,
     compactions: RefCell<Vec<Option<String>>>,
@@ -45,7 +45,7 @@ impl ScriptedTurnRunner {
 
     #[must_use]
     #[inline]
-    /// Creates a scripted TurnRunner with a default model.
+    /// Creates a scripted `TurnRunner` with a default model.
     ///
     /// # Panics
     ///
