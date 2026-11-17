@@ -1,7 +1,6 @@
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Formatter;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,10 +19,4 @@ impl Debug for Credential {
             Self::Oauth { expires, .. } => write!(f, "Credential::Oauth(expires {expires})"),
         }
     }
-}
-
-#[must_use]
-#[inline]
-pub fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }

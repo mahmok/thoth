@@ -27,10 +27,10 @@ use std::sync::LazyLock;
 use reqwest::{Method, Response, StatusCode};
 use serde::Serialize;
 
-use crate::llm::client::chat::Message;
-use crate::llm::client::error::Failure as ClientError;
-use crate::llm::provider::{AuthHeader, LoginMethod, ModelSpec, Protocol, Provider};
-use crate::session::SessionId;
+use crate::adapters::llm::client::chat::Message;
+use crate::adapters::llm::client::error::Failure as ClientError;
+use crate::domain::provider::{AuthHeader, LoginMethod, ModelSpec, Protocol, Provider};
+use crate::domain::shared::SessionId;
 
 use credential::Credential;
 use github::{Endpoints, Github};
@@ -285,7 +285,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use credential::now_ms;
+    use crate::clock::now_ms;
     use testing::MockServer;
 
     fn store() -> Arc<CredentialStore> {

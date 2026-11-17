@@ -2,9 +2,6 @@ use alloc::sync::Arc;
 use std::env;
 use std::path::PathBuf;
 
-use crate::agent::context::AgentContext;
-use crate::agent::skills::SkillSet;
-use crate::agent_builder::AgentBuilder;
 use crate::auth::login::LoginAttempt;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::worker::TokioLogin as TokioLoginWorker;
@@ -16,6 +13,9 @@ use crate::models::store::{InMemory as InMemoryModelsStore, Json as JsonModelsSt
 use crate::models::worker::TokioRefresh as TokioRefreshWorker;
 use crate::persistence::get_db;
 use crate::persona::Repository as PersonaRepository;
+use crate::runtime::agent_builder::AgentBuilder;
+use crate::runtime::context::AgentContext;
+use crate::runtime::skills::SkillSet;
 use crate::services::Services;
 use crate::workspace::Workspace;
 use anyhow::Context as _;

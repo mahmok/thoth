@@ -5,18 +5,18 @@ use crate::auth::credential::Credential;
 use crate::auth::login::LoginAttempt;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
-use crate::llm::provider::Provider;
+use crate::domain::provider::Provider;
 use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::workspace::Workspace;
 
-use crate::agent::context::AgentContext;
-use crate::agent::skills::SkillSet;
-use crate::agent::turn_runner::scripted::ScriptedTurnRunner;
-use crate::agent_builder::AgentBuilder;
 use crate::builtin::files::FileReferences;
 use crate::persona::Repository as PersonaRepository;
+use crate::runtime::agent_builder::AgentBuilder;
+use crate::runtime::context::AgentContext;
+use crate::runtime::skills::SkillSet;
+use crate::runtime::turn_runner::scripted::ScriptedTurnRunner;
 use crate::services::Services;
 
 /// Scripted collaborators for a conversation, with handles the test keeps to drive and inspect them.

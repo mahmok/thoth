@@ -3,8 +3,8 @@ use std::sync::Mutex;
 
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
-use crate::background::Background;
-use crate::llm::provider::Provider;
+use crate::domain::provider::Provider;
+use crate::runtime::background::Background;
 use crate::sync::MutexExt as _;
 
 use super::flow::{self, LoginEvent};

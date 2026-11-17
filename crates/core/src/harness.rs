@@ -1,24 +1,24 @@
-use crate::agent::turn_runner::TokioTurnRunner;
-#[cfg(any(test, feature = "testing"))]
-use crate::agent::turn_runner::TurnRunner;
-use crate::agent_builder::AgentBuilder;
 use crate::auth::login::LoginAttempt;
 use crate::auth::store::{Credentials as CredentialStore, Source};
 use crate::builtin::files::{FileReferences, Suggestions};
-use crate::llm::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
-use crate::llm::thinking::Thinking;
+use crate::domain::provider::{LOGIN_IDS, LoginMethod, ModelSpec, Provider};
+use crate::domain::shared::SessionId;
+use crate::domain::thinking::Thinking;
+use crate::domain::transcript::Speaker;
 use crate::models::choices;
 use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::Models as ModelsStore;
 use crate::notice::Notice;
 use crate::persona::{Info as PersonaInfo, Repository as PersonaRepository};
+use crate::runtime::agent_builder::AgentBuilder;
+use crate::runtime::turn_runner::TokioTurnRunner;
+#[cfg(any(test, feature = "testing"))]
+use crate::runtime::turn_runner::TurnRunner;
 use crate::services::Services;
 use crate::session::Session;
-use crate::session::SessionId;
 use crate::session::event::SessionEvent;
 use crate::session::view::Login as LoginView;
 use crate::session::{LoginState, Refusal};
-use crate::transcript::Speaker;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::mem;

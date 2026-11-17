@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 use core::fmt::Debug;
 use core::mem;
 
-use crate::llm::provider::Provider;
+use crate::domain::provider::Provider;
 
 use crate::notice::Notice;
 

@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use crossterm::event;
 use ratatui::DefaultTerminal;
-use thoth_core::auth::credential::now_ms;
+use thoth_core::clock::now_ms;
 
 use super::TerminalApp;
 use crate::modes::Modes;

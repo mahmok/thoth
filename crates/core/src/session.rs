@@ -1,23 +1,21 @@
 /// Events of a Session.
 pub mod event;
-/// The identity of a Session.
-pub mod id;
 /// Token statistics.
 pub mod stats;
 /// What a Session shows clients.
 pub mod view;
 
-use crate::llm::provider::ModelSpec;
-use crate::llm::thinking::Thinking;
+use crate::domain::provider::ModelSpec;
+use crate::domain::thinking::Thinking;
 use core::mem;
 
-use crate::agent::AgentChange;
-use crate::agent::skills::SkillSummary;
-use crate::agent::turn_runner::{Reply, TurnRunner};
-use crate::transcript::{Speaker, TranscriptChange};
+use crate::domain::transcript::{Speaker, TranscriptChange};
+use crate::runtime::agent::AgentChange;
+use crate::runtime::skills::SkillSummary;
+use crate::runtime::turn_runner::{Reply, TurnRunner};
 
+use crate::domain::shared::SessionId;
 use event::SessionEvent;
-pub use id::SessionId;
 use stats::Stats;
 use view::View;
 

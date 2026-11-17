@@ -1,7 +1,7 @@
 use core::ops::Range;
 
-use thoth_core::auth::credential::now_ms;
-use thoth_core::transcript::{Content, Item, Transcript};
+use thoth_core::clock::now_ms;
+use thoth_core::domain::transcript::{Content, Item, Transcript};
 
 use super::cache::Cache;
 use super::entry::Entry;
@@ -154,9 +154,9 @@ fn kinds_disagree() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thoth_core::agent::AgentEvent;
-    use thoth_core::agent::tools::tool::Outcome as ToolResult;
-    use thoth_core::transcript::{Speaker, TranscriptChange};
+    use thoth_core::domain::transcript::{Speaker, TranscriptChange};
+    use thoth_core::runtime::agent::AgentEvent;
+    use thoth_core::runtime::tools::tool::Outcome as ToolResult;
 
     /// Records what the Session would send for an agent event, the way a client applies it.
     fn record(transcript: &mut Transcript, event: AgentEvent) {

@@ -8,23 +8,24 @@ use core::time::Duration;
 use tokio::time;
 
 use super::*;
-use crate::agent::COMPACTION_CALL_ID;
-use crate::agent::context::{AgentContext, Budget, Compaction};
-use crate::agent::skills::SkillSet;
-use crate::agent_builder::AgentBuilder;
+use crate::adapters::llm::client::StreamedCompletion;
+use crate::adapters::llm::client::error::Failure as ClientError;
+use crate::adapters::llm::client::fake::Client as FakeClient;
 use crate::auth::login::LoginAttempt;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
-use crate::llm::client::StreamedCompletion;
-use crate::llm::client::error::Failure as ClientError;
-use crate::llm::client::fake::Client as FakeClient;
-use crate::llm::provider::Model;
+use crate::domain::conversation::budget::{Budget, Compaction};
+use crate::domain::provider::Model;
+use crate::domain::transcript::Content;
 use crate::models::model_refresh::ModelRefreshRun;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::persona::{Persona, Repository as PersonaRepository};
+use crate::runtime::agent::COMPACTION_CALL_ID;
+use crate::runtime::agent_builder::AgentBuilder;
+use crate::runtime::context::AgentContext;
+use crate::runtime::skills::SkillSet;
 use crate::services::Services;
 use crate::test::temp_tree::TempTree;
-use crate::transcript::Content;
 
 #[expect(clippy::unnecessary_wraps, reason = "the fake client's script holds Results, and the caller compares Options")]
 fn reply(text: &str) -> Result<StreamedCompletion, ClientError> {

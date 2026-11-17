@@ -1,7 +1,7 @@
 use super::event::SessionEvent;
 use super::stats::Stats;
-use crate::agent::Settings;
-use crate::transcript::Transcript;
+use crate::domain::transcript::Transcript;
+use crate::runtime::agent::Settings;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 /// A login as a client shows it.

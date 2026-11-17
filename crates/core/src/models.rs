@@ -10,7 +10,7 @@ use alloc::sync::Arc;
 
 use store::Models as ModelsStore;
 
-use crate::llm::provider::ModelSpec;
+use crate::domain::provider::ModelSpec;
 
 #[inline]
 /// Every stored model with a display name, for the model picker.
@@ -31,7 +31,7 @@ pub fn choices(store: &dyn ModelsStore) -> Vec<(ModelSpec, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::provider::Protocol;
+    use crate::domain::provider::Protocol;
     use crate::test::assert_empty;
     use testing::{fixture, store_with};
 

@@ -1,5 +1,5 @@
-use crate::auth::credential::now_ms;
-use crate::llm::provider::Provider;
+use crate::clock::now_ms;
+use crate::domain::provider::Provider;
 use crate::notice::Notice;
 use core::fmt::Debug;
 
@@ -136,7 +136,7 @@ mod tests {
     use crate::auth::credential::Credential;
     use crate::auth::store::Credentials as CredentialStore;
     use crate::auth::testing::MockServer;
-    use crate::llm::provider::Protocol;
+    use crate::domain::provider::Protocol;
     use crate::models::store::InMemory as InMemoryModelsStore;
     use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
     use crate::models::testing::store_with;

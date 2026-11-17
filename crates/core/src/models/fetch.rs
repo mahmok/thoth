@@ -3,11 +3,11 @@ use alloc::sync::Arc;
 
 use serde::Deserialize;
 
+use crate::adapters::llm::client::anthropic::API_VERSION;
+use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::auth::Auth;
 use crate::auth::store::Credentials as CredentialStore;
-use crate::llm::client::anthropic::API_VERSION;
-use crate::llm::client::error::Failure as ClientError;
-use crate::llm::provider::{LoginMethod, Model, Protocol, Provider};
+use crate::domain::provider::{LoginMethod, Model, Protocol, Provider};
 
 /// Id fragments of models that cannot chat.
 const NOT_CHAT: [&str; 11] = [
@@ -298,8 +298,9 @@ fn gateway_protocol(api: &BTreeMap<String, serde_json::Value>) -> Option<Protoco
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::credential::{Credential, now_ms};
+    use crate::auth::credential::Credential;
     use crate::auth::testing::MockServer;
+    use crate::clock::now_ms;
     use crate::test::assert_not_empty;
 
     fn credentials(provider: Option<(Provider, Credential)>) -> Arc<CredentialStore> {

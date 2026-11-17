@@ -1,4 +1,4 @@
-use crate::llm::client::chat;
+use crate::adapters::llm::client::chat;
 
 /// One Turn's token usage, as a client shows it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

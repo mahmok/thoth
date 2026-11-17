@@ -2,25 +2,24 @@
 
 #![cfg_attr(test, expect(unused_results, reason = "tests call things for their effect and ignore what they return"))]
 
-/// The Agent that talks to a model and runs Tools.
-pub mod agent;
-pub mod agent_builder;
+/// The clients that talk to the outside world.
+pub mod adapters;
 /// Provider credentials and login.
 pub mod auth;
-/// Work that runs off the UI thread.
-pub mod background;
 /// Starting the app.
 pub mod bootstrap;
 /// Built-in references: files and skills.
 pub mod builtin;
+/// The system clock.
+pub mod clock;
 /// Where configuration lives.
 pub mod config;
+/// The records and rules that hold without a runtime.
+pub mod domain;
 /// File helpers.
 pub mod fsutil;
 /// The Harness: the Sessions and what they share.
 pub mod harness;
-/// Model clients.
-pub mod llm;
 /// The models each provider offers.
 pub mod models;
 /// Notices for the user.
@@ -29,6 +28,8 @@ pub mod notice;
 pub mod persistence;
 /// Personas an Agent can play.
 pub mod persona;
+/// The Agent, its Turns and the tasks they run on.
+pub mod runtime;
 /// The services a Harness is built from.
 pub mod services;
 /// A Session: one conversation and its view.
@@ -37,8 +38,6 @@ pub mod sync;
 #[cfg(any(test, feature = "testing"))]
 #[expect(clippy::unwrap_used, reason = "test support: a failed setup should fail the test")]
 pub mod test;
-/// What the user sees: messages and Tool cards.
-pub mod transcript;
 /// Small shared helpers.
 pub mod utils;
 /// The working directory and what Tools may touch.

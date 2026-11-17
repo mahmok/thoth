@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tokio::sync;
 
+use crate::domain::provider::{LoginMethod, Provider};
 use crate::fsutil::write_private;
-use crate::llm::provider::{LoginMethod, Provider};
 use crate::sync::MutexExt as _;
 
 use super::credential::Credential;

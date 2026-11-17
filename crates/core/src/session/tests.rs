@@ -3,28 +3,28 @@ use alloc::sync::Arc;
 use core::mem;
 
 use super::*;
-use crate::agent::AgentEvent;
-use crate::agent::tools::tool::Outcome as ToolResult;
-use crate::agent::turn_runner::scripted::ScriptedTurnRunner;
+use crate::adapters::llm::client::chat::Usage;
 use crate::auth::flow::LoginEvent;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
 use crate::builtin::files::FileReferences;
+use crate::domain::provider::Provider;
+use crate::domain::provider::{Model, ModelSpec, Protocol};
+use crate::domain::thinking::Thinking;
+use crate::domain::transcript::Content;
+use crate::domain::transcript::tool_call::ToolStatus;
 use crate::harness::{Harness as CoreHarness, HarnessEvent, UseCaseError};
-use crate::llm::client::chat::Usage;
-use crate::llm::provider::Provider;
-use crate::llm::provider::{Model, ModelSpec, Protocol};
-use crate::llm::thinking::Thinking;
 use crate::models::model_refresh;
 use crate::models::store::InMemory as InMemoryModelsStore;
 use crate::models::store::Models as ModelsStore;
 use crate::models::testing::scripted::Worker as ScriptedRefreshWorker;
 use crate::models::testing::{fixture, store_with};
+use crate::runtime::agent::AgentEvent;
+use crate::runtime::tools::tool::Outcome as ToolResult;
+use crate::runtime::turn_runner::scripted::ScriptedTurnRunner;
 use crate::session::view::Login as LoginView;
 use crate::test::assert_empty;
 use crate::test::scripted::Scripted;
-use crate::transcript::Content;
-use crate::transcript::tool_call::ToolStatus;
 
 /// A session wired to scripted collaborators, driven by calling it the way a client would.
 #[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]

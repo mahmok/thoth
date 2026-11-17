@@ -4,7 +4,7 @@ use core::cell::RefCell;
 
 use crate::auth::flow::LoginEvent;
 use crate::auth::login::LoginWorker;
-use crate::llm::provider::Provider;
+use crate::domain::provider::Provider;
 
 #[derive(Default, Debug)]
 /// A login worker that replays a script.

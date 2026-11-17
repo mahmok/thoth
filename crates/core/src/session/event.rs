@@ -1,6 +1,6 @@
 use super::stats::Stats;
-use crate::agent::Settings;
-use crate::transcript::TranscriptChange;
+use crate::domain::transcript::TranscriptChange;
+use crate::runtime::agent::Settings;
 
 #[derive(Debug, Clone)]
 /// A change to a Session's view.

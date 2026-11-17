@@ -1,7 +1,7 @@
 use crate::config::dir;
+use crate::domain::provider::Model;
+use crate::domain::thinking::Thinking;
 use crate::fsutil::read_markdown_with_frontmatter;
-use crate::llm::provider::Model;
-use crate::llm::thinking::Thinking;
 use alloc::collections::BTreeMap;
 use core::error;
 use core::fmt;
@@ -268,7 +268,7 @@ fn is_valid_key(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::provider::{Model, Protocol};
+    use crate::domain::provider::{Model, Protocol};
     use crate::test::temp_tree::TempTree;
     use std::fs;
 

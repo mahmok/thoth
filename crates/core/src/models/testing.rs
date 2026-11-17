@@ -3,7 +3,7 @@ pub mod scripted;
 
 use alloc::sync::Arc;
 
-use crate::llm::provider::{Model, Protocol};
+use crate::domain::provider::{Model, Protocol};
 
 use super::store::{InMemory as InMemoryModelsStore, Models as ModelsStore};
 

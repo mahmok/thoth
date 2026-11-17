@@ -1,6 +1,6 @@
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crate::llm::provider::{LoginMethod, Provider};
+use crate::domain::provider::{LoginMethod, Provider};
 
 use super::Failure as AuthError;
 use super::credential::Credential;

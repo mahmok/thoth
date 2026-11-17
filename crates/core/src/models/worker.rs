@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
-use crate::background::Background;
-use crate::llm::provider::Provider;
+use crate::domain::provider::Provider;
+use crate::runtime::background::Background;
 
 use super::fetch::ModelFetcher;
 use super::model_refresh;

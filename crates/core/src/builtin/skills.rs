@@ -1,4 +1,4 @@
-use crate::agent::turn_runner::TurnRunner;
+use crate::runtime::turn_runner::TurnRunner;
 use crate::utils::strings::expand;
 
 /// What a prompt's skill reference starts with, such as `/skill:tdd`.

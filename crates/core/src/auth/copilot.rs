@@ -1,6 +1,6 @@
-use crate::llm::client::chat::{Message, Role};
+use crate::adapters::llm::client::chat::{Message, Role};
 
-use super::credential::now_ms;
+use crate::clock::now_ms;
 
 /// The user agent Copilot expects.
 pub(super) const USER_AGENT: &str = "GitHubCopilotChat/0.35.0";

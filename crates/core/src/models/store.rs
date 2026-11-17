@@ -7,8 +7,8 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use crate::domain::provider::{BUILTIN_IDS, Provider};
 use crate::fsutil::write_private;
-use crate::llm::provider::{BUILTIN_IDS, Provider};
 use crate::sync::MutexExt as _;
 
 /// Where providers are kept between runs: one record per provider, keyed by id.
@@ -147,7 +147,7 @@ fn ordered(entries: &BTreeMap<String, Provider>) -> Vec<Arc<Provider>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::provider::{Model, Protocol};
+    use crate::domain::provider::{Model, Protocol};
     use std::env;
     use std::path::Path;
     use std::process;

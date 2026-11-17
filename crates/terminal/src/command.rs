@@ -1,10 +1,11 @@
 use super::client::TerminalClient;
 use thoth_core::builtin::skills::SKILL_PREFIX;
-use thoth_core::harness::UseCaseError;
 #[cfg(test)]
-use thoth_core::llm::provider::Provider;
-use thoth_core::llm::thinking::Thinking;
-use thoth_core::session::{LoginState, Refusal, SessionId};
+use thoth_core::domain::provider::Provider;
+use thoth_core::domain::shared::SessionId;
+use thoth_core::domain::thinking::Thinking;
+use thoth_core::harness::UseCaseError;
+use thoth_core::session::{LoginState, Refusal};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// A slash command.
@@ -357,17 +358,17 @@ fn logouts(session: &TerminalClient) -> Vec<Pick> {
 mod tests {
     use super::*;
     use alloc::rc::Rc;
-    use thoth_core::agent::turn_runner::Reply;
-    use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
+    use thoth_core::domain::transcript::Content;
     use thoth_core::harness::Harness;
     use thoth_core::harness::HarnessEvent;
     use thoth_core::models::testing::fixture;
+    use thoth_core::runtime::turn_runner::Reply;
+    use thoth_core::runtime::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::test::assert_empty;
     use thoth_core::test::scripted::Scripted;
-    use thoth_core::transcript::Content;
 
+    use thoth_core::domain::transcript::Speaker;
     use thoth_core::persona::Persona;
-    use thoth_core::transcript::Speaker;
 
     struct Fixture {
         agent: Rc<ScriptedTurnRunner>,

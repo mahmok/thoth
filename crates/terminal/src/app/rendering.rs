@@ -10,7 +10,7 @@ use crate::units::to_u16;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::Paragraph;
-use thoth_core::llm::provider::ModelSpec;
+use thoth_core::domain::provider::ModelSpec;
 use unicode_width::UnicodeWidthStr as _;
 
 impl TerminalApp {
