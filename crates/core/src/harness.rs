@@ -1,6 +1,6 @@
+use crate::agent::turn_runner::TokioTurnRunner;
 #[cfg(any(test, feature = "testing"))]
-use crate::agent::controller::Controller as AgentController;
-use crate::agent::controller::TokioAgent as TokioAgentController;
+use crate::agent::turn_runner::TurnRunner;
 use crate::agent_builder::AgentBuilder;
 use crate::auth::login::LoginAttempt;
 use crate::auth::store::{Credentials as CredentialStore, Source};
@@ -181,7 +181,7 @@ impl Harness {
             return false;
         };
         let agent = Arc::new(Arc::clone(&self.builder).build_root(session_id, found, Arc::clone(&self.personas)));
-        let session = Session::new(session_id, Box::new(TokioAgentController::new(agent)));
+        let session = Session::new(session_id, Box::new(TokioTurnRunner::new(agent)));
         drop(self.sessions.insert(session_id, session));
         true
     }
@@ -362,9 +362,9 @@ impl Harness {
 
     #[cfg(any(test, feature = "testing"))]
     #[inline]
-    /// Starts a Session with a given controller, for tests.
-    pub fn start_session_with(&mut self, session_id: SessionId, controller: Box<dyn AgentController>) {
-        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(session_id, controller));
+    /// Starts a Session with a given runner, for tests.
+    pub fn start_session_with(&mut self, session_id: SessionId, runner: Box<dyn TurnRunner>) {
+        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(session_id, runner));
     }
 
     #[inline]

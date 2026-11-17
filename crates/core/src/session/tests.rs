@@ -4,8 +4,8 @@ use core::mem;
 
 use super::*;
 use crate::agent::Event as AgentEvent;
-use crate::agent::controller::scripted::Controller as ScriptedAgent;
 use crate::agent::tools::tool::Outcome as ToolResult;
+use crate::agent::turn_runner::scripted::ScriptedTurnRunner;
 use crate::auth::flow::LoginEvent;
 use crate::auth::store::Credentials as CredentialStore;
 use crate::auth::testing::scripted::Worker as ScriptedLoginWorker;
@@ -29,7 +29,7 @@ use crate::transcript::tool_call::ToolStatus;
 /// A session wired to scripted collaborators, driven by calling it the way a client would.
 #[expect(clippy::struct_field_names, reason = "the names follow the provider's wire format or what the type wraps")]
 struct Harness {
-    agent: Rc<ScriptedAgent>,
+    agent: Rc<ScriptedTurnRunner>,
     events: Vec<SessionEvent>,
     files: Arc<FileReferences>,
     harness: CoreHarness,
@@ -42,7 +42,7 @@ struct Harness {
 }
 
 impl Harness {
-    fn build(agent: Rc<ScriptedAgent>, logged_in: &[Provider], models: Arc<InMemoryModelsStore>) -> Self {
+    fn build(agent: Rc<ScriptedTurnRunner>, logged_in: &[Provider], models: Arc<InMemoryModelsStore>) -> Self {
         let scripted = Scripted::new(agent, logged_in);
         let mut harness = CoreHarness::new(scripted.services(models));
         let viewing = SessionId::mint();
@@ -71,7 +71,7 @@ impl Harness {
     }
 
     fn new() -> Self {
-        Self::build(ScriptedAgent::new(), &[], fixture())
+        Self::build(ScriptedTurnRunner::new(), &[], fixture())
     }
 
     fn poll(&mut self) {
@@ -135,16 +135,16 @@ impl Harness {
         self.harness.session(self.viewing).unwrap().view()
     }
 
-    fn with_agent(agent: Rc<ScriptedAgent>) -> Self {
+    fn with_agent(agent: Rc<ScriptedTurnRunner>) -> Self {
         Self::build(agent, &[], fixture())
     }
 
     fn with_logged_in(providers: &[Provider]) -> Self {
-        Self::build(ScriptedAgent::new(), providers, fixture())
+        Self::build(ScriptedTurnRunner::new(), providers, fixture())
     }
 
     fn with_models(models: Arc<InMemoryModelsStore>) -> Self {
-        Self::build(ScriptedAgent::new(), &[], models)
+        Self::build(ScriptedTurnRunner::new(), &[], models)
     }
 }
 
@@ -191,7 +191,7 @@ fn a_notice_for_a_session_that_does_not_exist_is_refused_not_dropped() {
 
 #[test]
 fn loaded_skills_are_announced_in_the_transcript() {
-    let h = Harness::with_agent(ScriptedAgent::new().with_skill("demo", "a demo").with_skill("tdd", "Test first"));
+    let h = Harness::with_agent(ScriptedTurnRunner::new().with_skill("demo", "a demo").with_skill("tdd", "Test first"));
     assert_eq!(h.said(), [(Speaker::Skills, "2 loaded\ndemo, tdd".to_owned())]);
 }
 
@@ -203,9 +203,11 @@ fn no_skills_means_no_announcement() {
 #[test]
 fn a_startup_notice_is_a_harness_notice_shown_as_an_error() {
     let mut h = Harness::new();
-    h.harness =
-        mem::replace(&mut h.harness, CoreHarness::new(Scripted::new(ScriptedAgent::new(), &[]).services(fixture())))
-            .with_notice("Could not read auth.json.");
+    h.harness = mem::replace(
+        &mut h.harness,
+        CoreHarness::new(Scripted::new(ScriptedTurnRunner::new(), &[]).services(fixture())),
+    )
+    .with_notice("Could not read auth.json.");
     h.poll();
     assert_eq!(h.said_by(Speaker::Error), ["Could not read auth.json."]);
 }
@@ -354,7 +356,7 @@ fn the_view_starts_with_the_settings_and_empty_stats() {
 
 #[test]
 fn the_view_has_no_model_when_none_is_selected() {
-    let h = Harness::with_agent(ScriptedAgent::new().without_model());
+    let h = Harness::with_agent(ScriptedTurnRunner::new().without_model());
     assert_eq!(h.view().settings.model, None);
 }
 
@@ -550,7 +552,7 @@ fn the_view_follows_the_events_it_emitted() {
 
 #[test]
 fn the_skills_are_listed_and_expanded_when_sent() {
-    let mut h = Harness::with_agent(ScriptedAgent::new().with_skill("tdd", "Test first"));
+    let mut h = Harness::with_agent(ScriptedTurnRunner::new().with_skill("tdd", "Test first"));
     let skills = h.session().skills();
     assert_eq!(skills[0].name, "tdd");
 
@@ -691,7 +693,7 @@ fn a_session_that_is_not_viewed_keeps_receiving_its_replies() {
     let first = h.viewing;
     h.send("hello");
     let second = SessionId::mint();
-    h.harness.start_session_with(second, Box::new(ScriptedAgent::new()));
+    h.harness.start_session_with(second, Box::new(ScriptedTurnRunner::new()));
     h.viewing = second;
     let mut expected = [(first, true), (second, false)];
     expected.sort_unstable();
@@ -717,7 +719,7 @@ fn a_session_that_is_not_viewed_keeps_receiving_its_replies() {
 fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
     let mut h = Harness::new();
     let first = h.viewing;
-    let other = ScriptedAgent::new();
+    let other = ScriptedTurnRunner::new();
     let second = SessionId::mint();
     h.harness.start_session_with(second, Box::new(Rc::clone(&other)));
     assert!(h.harness.submit(first, "to one".into(), "to one".into()));
@@ -737,7 +739,7 @@ fn a_prompt_can_be_sent_to_and_cancelled_in_a_session_that_is_not_viewed() {
 #[test]
 fn the_login_is_the_harness_s_and_is_not_tied_to_a_session() {
     let mut h = Harness::new();
-    h.harness.start_session_with(SessionId::mint(), Box::new(ScriptedAgent::new()));
+    h.harness.start_session_with(SessionId::mint(), Box::new(ScriptedTurnRunner::new()));
     h.harness.login(&Provider::builtin("github-copilot").unwrap());
     h.worker.event(device_code());
     h.poll();
@@ -761,7 +763,7 @@ fn notices_belong_to_no_session() {
 fn sessions_are_created_without_being_viewed_and_personas_are_listed() {
     use crate::persona::{Info as PersonaInfo, Persona};
 
-    let scripted = Scripted::new(ScriptedAgent::new(), &[]);
+    let scripted = Scripted::new(ScriptedTurnRunner::new(), &[]);
     let mut services = scripted.services(fixture());
     services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
     let mut harness = CoreHarness::new(services);
@@ -789,7 +791,7 @@ fn closing_a_session_stops_its_turn_and_forgets_it() {
     let mut h = Harness::new();
     let first = h.viewing;
     let second = SessionId::mint();
-    h.harness.start_session_with(second, Box::new(ScriptedAgent::new()));
+    h.harness.start_session_with(second, Box::new(ScriptedTurnRunner::new()));
     h.harness.submit(first, "hi".into(), "hi".into());
 
     assert!(h.harness.close_session(first));

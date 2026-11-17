@@ -200,7 +200,7 @@ mod tests {
     use alloc::sync::Arc;
 
     use super::*;
-    use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
+    use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::llm::provider::Model;
     use thoth_core::models::testing::fixture;
     use thoth_core::persona::Persona;
@@ -208,7 +208,7 @@ mod tests {
 
     /// A façade over a harness with one session that a `helper` persona can add to.
     fn client() -> Client {
-        let scripted = Scripted::new(ScriptedAgent::new(), &[]);
+        let scripted = Scripted::new(ScriptedTurnRunner::new(), &[]);
         let mut services = scripted.services(fixture());
         services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
         let mut harness = Harness::new(services);

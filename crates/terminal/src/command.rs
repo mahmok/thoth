@@ -357,8 +357,8 @@ fn logouts(session: &Client) -> Vec<Pick> {
 mod tests {
     use super::*;
     use alloc::rc::Rc;
-    use thoth_core::agent::controller::Reply;
-    use thoth_core::agent::controller::scripted::Controller as ScriptedAgent;
+    use thoth_core::agent::turn_runner::Reply;
+    use thoth_core::agent::turn_runner::scripted::ScriptedTurnRunner;
     use thoth_core::harness::Event as HarnessEvent;
     use thoth_core::harness::Harness;
     use thoth_core::models::testing::fixture;
@@ -370,12 +370,12 @@ mod tests {
     use thoth_core::transcript::Speaker;
 
     struct Fixture {
-        agent: Rc<ScriptedAgent>,
+        agent: Rc<ScriptedTurnRunner>,
         harness: Client,
         session: SessionId,
     }
 
-    fn fixture_with(agent: Rc<ScriptedAgent>, logged_in: &[Provider]) -> Fixture {
+    fn fixture_with(agent: Rc<ScriptedTurnRunner>, logged_in: &[Provider]) -> Fixture {
         let scripted = Scripted::new(agent, logged_in);
         let mut services = scripted.services(fixture());
         services.personas.add(Persona::new("helper", "Helper", "helps")).unwrap();
@@ -387,7 +387,7 @@ mod tests {
     }
 
     fn fresh() -> Fixture {
-        fixture_with(ScriptedAgent::new(), &[])
+        fixture_with(ScriptedTurnRunner::new(), &[])
     }
 
     fn labels(choices: &Choices) -> Vec<String> {
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn the_commands_are_the_built_ins_and_the_skills() {
-        let f = fixture_with(ScriptedAgent::new().with_skill("tdd", "Test first"), &[]);
+        let f = fixture_with(ScriptedTurnRunner::new().with_skill("tdd", "Test first"), &[]);
         let ids: Vec<_> = list(&f.harness).into_iter().map(|c| c.id).collect();
         assert_eq!(
             ids,
@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn a_skill_command_inserts_its_reference() {
-        let mut f = fixture_with(ScriptedAgent::new().with_skill("tdd", "Test first"), &[]);
+        let mut f = fixture_with(ScriptedTurnRunner::new().with_skill("tdd", "Test first"), &[]);
         assert_eq!(run(&mut f.harness, "skill:tdd", None), Ok(Ran::Insert("/skill:tdd ".into())));
     }
 
@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn login_and_logout_list_their_own_providers() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::builtin("openai").unwrap()]);
+        let mut f = fixture_with(ScriptedTurnRunner::new(), &[Provider::builtin("openai").unwrap()]);
         let logins = open(&mut f.harness, "login");
         let expected: Vec<String> = Provider::logins().iter().map(|p| p.display_name().to_owned()).collect();
         assert_eq!(labels(&logins), expected);
@@ -597,7 +597,7 @@ mod tests {
 
     #[test]
     fn logout_removes_the_saved_login_and_the_old_list_is_then_stale() {
-        let mut f = fixture_with(ScriptedAgent::new(), &[Provider::builtin("github-copilot").unwrap()]);
+        let mut f = fixture_with(ScriptedTurnRunner::new(), &[Provider::builtin("github-copilot").unwrap()]);
         let saved = open(&mut f.harness, "logout");
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Ok(Ran::Done));
         assert_eq!(choose(&mut f.harness, &saved, "GitHub Copilot"), Err(Refused::UnknownChoice));

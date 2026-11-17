@@ -2,8 +2,6 @@
 pub mod budget;
 /// Prompt context: AGENTS.md files and the token budget.
 pub mod context;
-/// Runs an Agent on its own task and reports back.
-pub mod controller;
 /// The message history and how it shrinks.
 pub mod conversation;
 pub mod delegation;
@@ -14,6 +12,8 @@ pub mod sub_agents;
 pub mod tools;
 /// Runs one Turn: its model steps, Tool calls, and events.
 mod turn;
+/// Runs a Turn on its own task and reports back.
+pub mod turn_runner;
 /// The messages and responses of an Agent.
 pub mod types;
 

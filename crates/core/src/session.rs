@@ -12,8 +12,8 @@ use crate::llm::thinking::Thinking;
 use core::mem;
 
 use crate::agent::Change as AgentChange;
-use crate::agent::controller::{Controller as AgentController, Reply};
 use crate::agent::skills::SkillSummary;
+use crate::agent::turn_runner::{Reply, TurnRunner};
 use crate::transcript::{Change as TranscriptChange, Speaker};
 
 use event::Event as SessionEvent;
@@ -38,7 +38,7 @@ pub enum LoginState {
 #[derive(Debug)]
 /// One conversation and its view.
 pub struct Session {
-    agent: Box<dyn AgentController>,
+    runner: Box<dyn TurnRunner>,
     /// Whether the Agent is working. The Session owns this; [`View::busy`] is derived from it.
     busy: bool,
     id: SessionId,
@@ -49,7 +49,7 @@ pub struct Session {
 
 impl Session {
     fn announce_skills(&mut self) {
-        let names: Vec<String> = self.agent.skills().into_iter().map(|s| s.name).collect();
+        let names: Vec<String> = self.runner.skills().into_iter().map(|s| s.name).collect();
         if !names.is_empty() {
             let text = format!("{} loaded\n{}", names.len(), names.join(", "));
             self.say(Speaker::Skills, text);
@@ -67,7 +67,7 @@ impl Session {
     /// Interrupts the running turn, if there is one.
     pub fn cancel(&mut self) {
         if self.busy {
-            self.agent.apply(AgentChange::Interrupt);
+            self.runner.apply(AgentChange::Interrupt);
         }
         self.sync_view();
     }
@@ -80,7 +80,7 @@ impl Session {
     /// Refused while the Agent is busy.
     pub fn clear(&mut self) -> Result<(), Refusal> {
         self.idle()?;
-        self.agent.apply(AgentChange::ClearConversation);
+        self.runner.apply(AgentChange::ClearConversation);
         self.emit(SessionEvent::Transcript(TranscriptChange::Cleared));
         self.sync_view();
         Ok(())
@@ -96,7 +96,7 @@ impl Session {
     pub fn compact(&mut self, focus: Option<String>) -> Result<(), Refusal> {
         self.idle()?;
         self.busy = true;
-        self.agent.compact(focus);
+        self.runner.compact(focus);
         self.sync_view();
         Ok(())
     }
@@ -111,7 +111,7 @@ impl Session {
     #[inline]
     /// Replaces each `/skill:name` in `prompt` with that skill's block.
     pub fn expand_skills(&self, prompt: &str) -> String {
-        crate::builtin::skills::expand_skills(prompt, self.agent.as_ref())
+        crate::builtin::skills::expand_skills(prompt, self.runner.as_ref())
     }
 
     const fn idle(&self) -> Result<(), Refusal> {
@@ -127,10 +127,10 @@ impl Session {
 
     #[must_use]
     #[inline]
-    /// Creates a Session around an Agent controller.
-    pub fn new(id: SessionId, agent: Box<dyn AgentController>) -> Self {
+    /// Creates a Session around a turn runner.
+    pub fn new(id: SessionId, runner: Box<dyn TurnRunner>) -> Self {
         let mut session =
-            Self { agent, busy: false, id, stats: Stats::default(), view: View::default(), out: Vec::new() };
+            Self { runner, busy: false, id, stats: Stats::default(), view: View::default(), out: Vec::new() };
         session.announce_skills();
         session.settle();
         session
@@ -138,7 +138,7 @@ impl Session {
 
     /// Applies everything the Agent has reported, without projecting it yet.
     fn drain(&mut self) {
-        while let Some(reply) = self.agent.try_next() {
+        while let Some(reply) = self.runner.try_next() {
             self.on_reply(reply);
         }
     }
@@ -190,7 +190,7 @@ impl Session {
     /// Refused while the Agent is busy.
     pub fn set_model(&mut self, model: ModelSpec) -> Result<(), Refusal> {
         self.idle()?;
-        self.agent.apply(AgentChange::SetModel(model));
+        self.runner.apply(AgentChange::SetModel(model));
         self.sync_view();
         Ok(())
     }
@@ -203,7 +203,7 @@ impl Session {
     #[inline]
     pub fn set_thinking(&mut self, level: Thinking) -> Result<(), Refusal> {
         self.idle()?;
-        self.agent.apply(AgentChange::SetThinking(level));
+        self.runner.apply(AgentChange::SetThinking(level));
         self.sync_view();
         Ok(())
     }
@@ -216,7 +216,7 @@ impl Session {
     #[must_use]
     #[inline]
     pub fn skills(&self) -> Vec<SkillSummary> {
-        self.agent.skills()
+        self.runner.skills()
     }
 
     /// Takes a prompt if the Agent is idle: shows it, becomes busy and starts the turn.
@@ -230,7 +230,7 @@ impl Session {
         self.idle()?;
         self.say(Speaker::You, shown);
         self.busy = true;
-        self.agent.start(expanded_prompt);
+        self.runner.start(expanded_prompt);
         self.sync_view();
         Ok(())
     }
@@ -241,7 +241,7 @@ impl Session {
         if self.busy != self.view.busy {
             self.emit(SessionEvent::Busy(self.busy));
         }
-        let settings = self.agent.settings();
+        let settings = self.runner.settings();
         if settings != self.view.settings {
             self.emit(SessionEvent::Settings(settings));
         }

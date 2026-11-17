@@ -4,15 +4,15 @@ use core::cell::{Cell, RefCell};
 
 use alloc::sync::Arc;
 
-use super::{Controller as AgentController, Reply};
+use super::{Reply, TurnRunner};
 use crate::agent::skills::SkillSummary;
 use crate::agent::{Change as AgentChange, Settings};
 use crate::llm::provider::{Model, ModelSpec, Provider};
 use crate::llm::thinking::Thinking;
 
 #[derive(Debug)]
-/// An Agent controller that replays a script.
-pub struct Controller {
+/// A TurnRunner that replays a script.
+pub struct ScriptedTurnRunner {
     cleared: Cell<usize>,
     compactions: RefCell<Vec<Option<String>>>,
     interrupted: Cell<usize>,
@@ -22,7 +22,7 @@ pub struct Controller {
     skills: RefCell<Vec<SkillSummary>>,
 }
 
-impl Controller {
+impl ScriptedTurnRunner {
     #[inline]
     pub const fn cleared(&self) -> usize {
         self.cleared.get()
@@ -45,7 +45,7 @@ impl Controller {
 
     #[must_use]
     #[inline]
-    /// Creates a scripted Agent with a default model.
+    /// Creates a scripted TurnRunner with a default model.
     ///
     /// # Panics
     ///
@@ -89,7 +89,7 @@ impl Controller {
     }
 }
 
-impl AgentController for Controller {
+impl TurnRunner for ScriptedTurnRunner {
     #[inline]
     fn apply(&self, change: AgentChange) {
         match change {
@@ -137,7 +137,7 @@ impl AgentController for Controller {
     }
 }
 
-impl<T: AgentController + ?Sized> AgentController for Rc<T> {
+impl<T: TurnRunner + ?Sized> TurnRunner for Rc<T> {
     #[inline]
     fn apply(&self, change: AgentChange) {
         (**self).apply(change);
