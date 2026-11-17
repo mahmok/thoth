@@ -1,4 +1,4 @@
-use crate::adapters::llm::client::chat::{Message, Role};
+use crate::domain::message::{Message, Role};
 
 use crate::clock::now_ms;
 

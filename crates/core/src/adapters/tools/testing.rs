@@ -1,6 +1,7 @@
 use serde_json::Value;
 
-use crate::runtime::tools::tool::{Outcome as ToolResult, Tool, ToolContext};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Tool, ToolContext};
 use crate::runtime::tools::tool_set::ToolSet;
 
 pub(super) async fn run<T>(tool: T, args: Value) -> ToolResult

@@ -46,11 +46,11 @@ mod tests {
     use crate::adapters::auth::store::Credentials as CredentialStore;
     use crate::adapters::auth::testing::MockServer;
     use crate::adapters::llm::client::anthropic::{Client as AnthropicClient, Config as AnthropicConfig};
-    use crate::adapters::llm::client::chat::Message;
     use crate::adapters::llm::client::google::{Client as GoogleClient, Config as GoogleConfig};
     use crate::adapters::llm::client::openai::{OpenAiClient, OpenAiConfig};
     use crate::adapters::llm::client::responses::{Client as ResponsesClient, Config as ResponsesConfig};
     use crate::adapters::llm::client::{ClientError, CreateCompletionRequest, Delta, Llm as _, StreamedCompletion};
+    use crate::domain::message::Message;
     use crate::domain::provider::{Protocol, Provider};
 
     /// What one scripted reply produced.

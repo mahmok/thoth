@@ -1,9 +1,7 @@
 /// A Tool call card.
 pub mod tool_call;
 
-use crate::clock::now_ms;
-use crate::runtime::agent::AgentEvent;
-use crate::runtime::tools::tool::Outcome as ToolResult;
+use crate::domain::tool::Outcome as ToolResult;
 
 use tool_call::ToolCall;
 
@@ -66,59 +64,6 @@ pub enum TranscriptChange {
     Replaced(Item),
 }
 
-#[derive(Debug, Clone)]
-/// An Agent event, taken apart once. Everything that reads the event stream matches this rather
-/// than the event enum, so a new event variant is read in one place.
-pub enum Observed {
-    /// A fragment of the reply.
-    Text(String),
-    /// A fragment of the model's thinking.
-    Reasoning(String),
-    /// Something the user should know about the Turn.
-    Notice(String),
-    /// A model call is starting; steps are numbered from 1 within a Turn.
-    Step(usize),
-    /// A Tool call is starting.
-    ToolStarted {
-        /// The id of the call.
-        id: String,
-        /// A short description of the call.
-        summary: String,
-    },
-    /// A running Tool call reports a status line.
-    ToolProgress {
-        /// The id of the call.
-        id: String,
-        /// What the call is doing.
-        status: String,
-    },
-    /// A Tool call finished.
-    ToolFinished {
-        /// The id of the call.
-        id: String,
-        /// A short description of the call.
-        summary: String,
-        /// What the Tool returned.
-        result: ToolResult,
-    },
-}
-
-impl Observed {
-    /// Reads `event`. This is the one place the Agent's event enum is matched.
-    #[must_use]
-    pub fn of(event: AgentEvent) -> Self {
-        match event {
-            AgentEvent::Text(delta) => Self::Text(delta),
-            AgentEvent::Reasoning(delta) => Self::Reasoning(delta),
-            AgentEvent::Notice(text) => Self::Notice(text),
-            AgentEvent::StepStarted { step } => Self::Step(step),
-            AgentEvent::ToolStarted { id, summary } => Self::ToolStarted { id, summary },
-            AgentEvent::ToolProgress { id, status } => Self::ToolProgress { id, status },
-            AgentEvent::ToolFinished { id, summary, result } => Self::ToolFinished { id, summary, result },
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 /// What the user sees.
 pub struct Transcript {
@@ -127,25 +72,6 @@ pub struct Transcript {
 }
 
 impl Transcript {
-    /// The change an agent event makes, or `None` when there is nothing to show for it (progress
-    /// for a card that has already finished).
-    #[must_use]
-    #[inline]
-    pub fn agent_event(&self, event: AgentEvent) -> Option<TranscriptChange> {
-        Some(match Observed::of(event) {
-            Observed::Text(delta) => self.streamed(Speaker::Agent, delta),
-            Observed::Reasoning(delta) => self.streamed(Speaker::Thinking, delta),
-            Observed::Notice(text) => self.said(Speaker::Notice, text),
-            Observed::Step(_) => return None,
-            Observed::ToolStarted { id, summary } => {
-                let call = ToolCall::running(id, summary, now_ms());
-                TranscriptChange::Added(self.new_item(Content::Tool(call)))
-            },
-            Observed::ToolProgress { id, status } => return self.tool_progress(&id, status),
-            Observed::ToolFinished { id, summary, result } => self.tool_finished(&id, summary, &result),
-        })
-    }
-
     #[inline]
     /// Applies a change a Session sent, keeping the transcript in step.
     pub fn apply(&mut self, change: &TranscriptChange) {
@@ -229,7 +155,11 @@ impl Transcript {
         TranscriptChange::Added(self.new_item(Content::Message(Message { speaker, text: text.into() })))
     }
 
-    fn streamed(&self, speaker: Speaker, delta: String) -> TranscriptChange {
+    /// The change a streamed fragment makes: it joins the current message of `speaker`, if there
+    /// is one, and starts a new message otherwise.
+    #[must_use]
+    #[inline]
+    pub fn streamed(&self, speaker: Speaker, delta: String) -> TranscriptChange {
         match self.items.last() {
             Some(item) if matches!(&item.content, Content::Message(m) if m.speaker == speaker) => {
                 TranscriptChange::Appended { id: item.id, revision: item.revision.saturating_add(1), text: delta }
@@ -238,20 +168,37 @@ impl Transcript {
         }
     }
 
+    /// The change a started Tool call makes: a new running card.
+    #[must_use]
+    #[inline]
+    pub fn started_tool(&self, call_id: String, summary: String, started_at: u64) -> TranscriptChange {
+        TranscriptChange::Added(self.new_item(Content::Tool(ToolCall::running(call_id, summary, started_at))))
+    }
+
+    /// The change a finished Tool call makes, at `finished_at`.
+    #[must_use]
     #[expect(clippy::option_if_let_else, reason = "both branches consume `finish`")]
-    fn tool_finished(&self, call_id: &str, summary: String, result: &ToolResult) -> TranscriptChange {
-        let now = now_ms();
-        let finish = |call: &mut ToolCall| call.finish(now, result.is_error, &result.content);
+    pub fn tool_finished(
+        &self,
+        call_id: &str,
+        summary: String,
+        result: &ToolResult,
+        finished_at: u64,
+    ) -> TranscriptChange {
+        let finish = |call: &mut ToolCall| call.finish(finished_at, result.is_error, &result.content);
         if let Some(item) = self.running_card(call_id) {
             Self::replace_card(item, finish)
         } else {
-            let mut call = ToolCall::running(call_id, summary, now);
+            let mut call = ToolCall::running(call_id, summary, finished_at);
             finish(&mut call);
             TranscriptChange::Added(self.new_item(Content::Tool(call)))
         }
     }
 
-    fn tool_progress(&self, call_id: &str, status: String) -> Option<TranscriptChange> {
+    /// The change a progress report makes, or `None` when its card has already finished.
+    #[must_use]
+    #[inline]
+    pub fn tool_progress(&self, call_id: &str, status: String) -> Option<TranscriptChange> {
         let item = self.running_card(call_id)?;
         Some(Self::replace_card(item, |call| call.progress = Some(status)))
     }
@@ -262,14 +209,30 @@ mod tests {
     use super::*;
     use crate::domain::transcript::tool_call::ToolStatus;
 
-    fn record(transcript: &mut Transcript, event: AgentEvent) {
-        let change = transcript.agent_event(event).expect("the event changes the transcript");
-        transcript.apply(&change);
+    const NOW: u64 = 1_000;
+
+    fn record(transcript: &mut Transcript, change: &TranscriptChange) {
+        transcript.apply(change);
     }
 
     fn say(transcript: &mut Transcript, speaker: Speaker, text: &str) {
         let change = transcript.said(speaker, text);
-        transcript.apply(&change);
+        record(transcript, &change);
+    }
+
+    fn stream(transcript: &mut Transcript, speaker: Speaker, delta: &str) {
+        let change = transcript.streamed(speaker, delta.to_owned());
+        record(transcript, &change);
+    }
+
+    fn start(transcript: &mut Transcript, id: &str, summary: &str) {
+        let change = transcript.started_tool(id.to_owned(), summary.to_owned(), NOW);
+        record(transcript, &change);
+    }
+
+    fn finish(transcript: &mut Transcript, id: &str, summary: &str, result: &ToolResult) {
+        let change = transcript.tool_finished(id, summary.to_owned(), result, NOW.saturating_add(250));
+        record(transcript, &change);
     }
 
     fn messages(transcript: &Transcript) -> Vec<(Speaker, String)> {
@@ -294,42 +257,21 @@ mod tests {
             .collect()
     }
 
-    fn text(delta: &str) -> AgentEvent {
-        AgentEvent::Text(delta.to_owned())
-    }
-
-    /// A started call. Its id is its summary, unless the test says otherwise.
-    fn started(summary: &str) -> AgentEvent {
-        started_with_id(summary, summary)
-    }
-
-    fn started_with_id(id: &str, summary: &str) -> AgentEvent {
-        AgentEvent::ToolStarted { id: id.to_owned(), summary: summary.to_owned() }
-    }
-
-    fn finished(summary: &str, result: ToolResult) -> AgentEvent {
-        finished_with_id(summary, summary, result)
-    }
-
-    fn finished_with_id(id: &str, summary: &str, result: ToolResult) -> AgentEvent {
-        AgentEvent::ToolFinished { id: id.to_owned(), summary: summary.to_owned(), result }
-    }
-
     #[test]
     fn streamed_text_joins_the_current_agent_reply() {
         let mut transcript = Transcript::default();
         say(&mut transcript, Speaker::You, "q");
-        record(&mut transcript, text("Hel"));
-        record(&mut transcript, text("lo"));
+        stream(&mut transcript, Speaker::Agent, "Hel");
+        stream(&mut transcript, Speaker::Agent, "lo");
         assert_eq!(messages(&transcript), [(Speaker::You, "q".into()), (Speaker::Agent, "Hello".into())]);
     }
 
     #[test]
     fn thinking_streams_into_its_own_message_before_the_reply() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, AgentEvent::Reasoning("Let me ".into()));
-        record(&mut transcript, AgentEvent::Reasoning("look.".into()));
-        record(&mut transcript, text("Found it"));
+        stream(&mut transcript, Speaker::Thinking, "Let me ");
+        stream(&mut transcript, Speaker::Thinking, "look.");
+        stream(&mut transcript, Speaker::Agent, "Found it");
         assert_eq!(
             messages(&transcript),
             [(Speaker::Thinking, "Let me look.".into()), (Speaker::Agent, "Found it".into())]
@@ -339,16 +281,16 @@ mod tests {
     #[test]
     fn a_reply_after_a_tool_call_starts_a_new_message() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, text("before"));
-        record(&mut transcript, started("call"));
-        record(&mut transcript, text("after"));
+        stream(&mut transcript, Speaker::Agent, "before");
+        start(&mut transcript, "call", "call");
+        stream(&mut transcript, Speaker::Agent, "after");
         assert_eq!(messages(&transcript), [(Speaker::Agent, "before".into()), (Speaker::Agent, "after".into())]);
     }
 
     #[test]
     fn a_tool_call_appears_when_it_starts() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, started("read_file(Cargo.toml)"));
+        start(&mut transcript, "read_file(Cargo.toml)", "read_file(Cargo.toml)");
         let calls = calls(&transcript);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].summary, "read_file(Cargo.toml)");
@@ -358,8 +300,8 @@ mod tests {
     #[test]
     fn a_tool_result_lands_on_the_card_that_started_it() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, started("read_file(a)"));
-        record(&mut transcript, finished("read_file(a)", ToolResult::ok("file contents")));
+        start(&mut transcript, "read_file(a)", "read_file(a)");
+        finish(&mut transcript, "read_file(a)", "read_file(a)", &ToolResult::ok("file contents"));
         let calls = calls(&transcript);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].status, ToolStatus::Done);
@@ -370,13 +312,13 @@ mod tests {
     fn a_running_tool_is_found_only_in_the_current_turn() {
         let mut transcript = Transcript::default();
         assert!(!transcript.has_running_tool());
-        record(&mut transcript, started("bash(sleep)"));
+        start(&mut transcript, "bash(sleep)", "bash(sleep)");
         assert!(transcript.has_running_tool());
-        record(&mut transcript, finished("bash(sleep)", ToolResult::ok("")));
+        finish(&mut transcript, "bash(sleep)", "bash(sleep)", &ToolResult::ok(""));
         assert!(!transcript.has_running_tool());
 
         // A card left running by an earlier turn does not keep the screen redrawing.
-        record(&mut transcript, started("bash(old)"));
+        start(&mut transcript, "bash(old)", "bash(old)");
         say(&mut transcript, Speaker::You, "next");
         assert!(!transcript.has_running_tool());
     }
@@ -384,24 +326,24 @@ mod tests {
     #[test]
     fn a_failed_tool_call_is_marked_failed() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, started("read_file(../x)"));
-        record(&mut transcript, finished("read_file(../x)", ToolResult::error("denied")));
+        start(&mut transcript, "read_file(../x)", "read_file(../x)");
+        finish(&mut transcript, "read_file(../x)", "read_file(../x)", &ToolResult::error("denied"));
         assert_eq!(calls(&transcript)[0].status, ToolStatus::Failed);
     }
 
     #[test]
     fn a_result_without_a_started_call_still_shows_a_card() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, finished("read_file(a)", ToolResult::ok("x")));
+        finish(&mut transcript, "read_file(a)", "read_file(a)", &ToolResult::ok("x"));
         assert_eq!(calls(&transcript)[0].status, ToolStatus::Done);
     }
 
     #[test]
     fn a_change_appends_or_replaces_the_item_it_names_and_bumps_its_revision() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, text("a"));
+        stream(&mut transcript, Speaker::Agent, "a");
         let (id, before) = (transcript.items()[0].id, transcript.items()[0].revision);
-        record(&mut transcript, text("b"));
+        stream(&mut transcript, Speaker::Agent, "b");
         assert_eq!(transcript.items()[0].id, id);
         assert!(transcript.items()[0].revision > before);
     }
@@ -411,14 +353,17 @@ mod tests {
         let mut session_side = Transcript::default();
         let mut client = Transcript::default();
         let mut changes = Vec::new();
-        for event in [text("hi "), text("there"), started("read_file(a)")] {
-            let change = session_side.agent_event(event).unwrap();
+        for (speaker, delta) in [(Speaker::Agent, "hi "), (Speaker::Agent, "there")] {
+            let change = session_side.streamed(speaker, delta.to_owned());
             session_side.apply(&change);
             changes.push(change);
         }
-        let change = session_side.agent_event(finished("read_file(a)", ToolResult::ok("x"))).unwrap();
-        session_side.apply(&change);
-        changes.push(change);
+        let started = session_side.started_tool("read_file(a)".into(), "read_file(a)".into(), NOW);
+        session_side.apply(&started);
+        changes.push(started);
+        let finished = session_side.tool_finished("read_file(a)", "read_file(a)".into(), &ToolResult::ok("x"), NOW);
+        session_side.apply(&finished);
+        changes.push(finished);
         for recorded in &changes {
             client.apply(recorded);
         }
@@ -441,10 +386,11 @@ mod tests {
     #[test]
     fn results_and_progress_match_their_card_by_call_id_even_with_the_same_summary() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, started_with_id("a", "read_file(x)"));
-        record(&mut transcript, started_with_id("b", "read_file(x)"));
-        record(&mut transcript, AgentEvent::ToolProgress { id: "a".into(), status: "reading".into() });
-        record(&mut transcript, finished_with_id("b", "read_file(x)", ToolResult::ok("second")));
+        start(&mut transcript, "a", "read_file(x)");
+        start(&mut transcript, "b", "read_file(x)");
+        let progress = transcript.tool_progress("a", "reading".into()).unwrap();
+        record(&mut transcript, &progress);
+        finish(&mut transcript, "b", "read_file(x)", &ToolResult::ok("second"));
 
         let calls = calls(&transcript);
         assert_eq!(calls.len(), 2);
@@ -457,19 +403,11 @@ mod tests {
     }
 
     #[test]
-    fn a_step_starting_changes_nothing_on_the_transcript() {
-        let transcript = Transcript::default();
-        assert!(transcript.agent_event(AgentEvent::StepStarted { step: 1 }).is_none());
-    }
-
-    #[test]
     fn progress_for_a_finished_or_unknown_card_changes_nothing() {
         let mut transcript = Transcript::default();
-        record(&mut transcript, started_with_id("a", "bash(x)"));
-        record(&mut transcript, finished_with_id("a", "bash(x)", ToolResult::ok("")));
-        let late = AgentEvent::ToolProgress { id: "a".into(), status: "too late".into() };
-        assert!(transcript.agent_event(late).is_none());
-        let unknown = AgentEvent::ToolProgress { id: "zz".into(), status: "who?".into() };
-        assert!(transcript.agent_event(unknown).is_none());
+        start(&mut transcript, "a", "bash(x)");
+        finish(&mut transcript, "a", "bash(x)", &ToolResult::ok(""));
+        assert!(transcript.tool_progress("a", "too late".into()).is_none());
+        assert!(transcript.tool_progress("zz", "who?".into()).is_none());
     }
 }

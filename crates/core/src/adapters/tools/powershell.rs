@@ -2,7 +2,8 @@ use serde_json::Value;
 
 use super::shell::{self, Shell, ShellArgs};
 use crate::adapters::workspace::Workspace;
-use crate::runtime::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext};
 
 /// The shell the `powershell` Tool runs commands in.
 const POWERSHELL: Shell = Shell {

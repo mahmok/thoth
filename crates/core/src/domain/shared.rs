@@ -1,9 +1,9 @@
-//! The identity of a Session.
+//! Identities and token counts shared across the rings.
 
 use core::fmt;
 use core::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ulid::Ulid;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -41,6 +41,47 @@ impl FromStr for SessionId {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         Ulid::from_str(text).map(Self)
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+/// Token counts of a request.
+pub struct Usage {
+    /// How much of the prompt the provider served from its cache. Part of `prompt_tokens`.
+    #[serde(default, rename = "prompt_tokens_details", deserialize_with = "cached_tokens")]
+    pub cached_tokens: u32,
+    /// Tokens in the reply.
+    pub completion_tokens: u32,
+    /// Tokens in the prompt.
+    pub prompt_tokens: u32,
+    /// Prompt and reply together.
+    pub total_tokens: u32,
+}
+
+impl Usage {
+    /// Sums two usages, e.g. across the steps of one agent turn.
+    #[must_use]
+    #[inline]
+    pub const fn merge(self, other: Self) -> Self {
+        Self {
+            prompt_tokens: self.prompt_tokens.saturating_add(other.prompt_tokens),
+            completion_tokens: self.completion_tokens.saturating_add(other.completion_tokens),
+            total_tokens: self.total_tokens.saturating_add(other.total_tokens),
+            cached_tokens: self.cached_tokens.saturating_add(other.cached_tokens),
+        }
+    }
+}
+
+/// Chat completions report cached tokens inside `prompt_tokens_details`.
+fn cached_tokens<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct Details {
+        #[serde(default)]
+        cached_tokens: u32,
+    }
+    Ok(Option::<Details>::deserialize(deserializer)?.map_or(0, |details| details.cached_tokens))
 }
 
 #[cfg(test)]

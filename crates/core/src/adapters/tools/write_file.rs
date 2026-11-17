@@ -5,7 +5,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::adapters::workspace::Workspace;
-use crate::runtime::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, blocking};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, blocking};
 #[derive(Debug)]
 
 /// The `write_file` Tool.

@@ -1,5 +1,7 @@
 /// Events of a Session.
 pub mod event;
+/// Turns what the Agent reports into transcript changes.
+pub mod projector;
 /// Token statistics.
 pub mod stats;
 /// What a Session shows clients.
@@ -7,10 +9,11 @@ pub mod view;
 
 use crate::domain::provider::ModelSpec;
 use crate::domain::thinking::Thinking;
+use alloc::sync::Arc;
 use core::mem;
 
 use crate::adapters::skills::SkillSummary;
-use crate::application::ports::{Reply, TurnRunner};
+use crate::application::ports::{Clock, Reply, TurnRunner};
 use crate::domain::transcript::{Speaker, TranscriptChange};
 use crate::runtime::agent::AgentChange;
 
@@ -39,6 +42,7 @@ pub struct Session {
     runner: Box<dyn TurnRunner>,
     /// Whether the Agent is working. The Session owns this; [`View::busy`] is derived from it.
     busy: bool,
+    clock: Arc<dyn Clock>,
     id: SessionId,
     out: Vec<SessionEvent>,
     stats: Stats,
@@ -125,10 +129,10 @@ impl Session {
 
     #[must_use]
     #[inline]
-    /// Creates a Session around a turn runner.
-    pub fn new(id: SessionId, runner: Box<dyn TurnRunner>) -> Self {
+    /// Creates a Session around a turn runner, with the clock it stamps transcript changes with.
+    pub fn new(id: SessionId, runner: Box<dyn TurnRunner>, clock: Arc<dyn Clock>) -> Self {
         let mut session =
-            Self { runner, busy: false, id, stats: Stats::default(), view: View::default(), out: Vec::new() };
+            Self { runner, busy: false, clock, id, stats: Stats::default(), view: View::default(), out: Vec::new() };
         session.announce_skills();
         session.settle();
         session
@@ -145,12 +149,13 @@ impl Session {
     fn on_reply(&mut self, reply: Reply) {
         match reply {
             Reply::Event(event) => {
-                if let Some(change) = self.view.transcript.agent_event(event) {
+                let change = projector::change(&self.view.transcript, event, self.clock.now_ms());
+                if let Some(change) = change {
                     self.emit(SessionEvent::Transcript(change));
                 }
             },
             Reply::Done { usage } => {
-                self.stats.record(usage);
+                self.stats.record(usage.map(projector::usage));
                 self.busy = false;
             },
             Reply::Failed(text) => {

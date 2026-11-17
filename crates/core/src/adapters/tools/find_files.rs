@@ -4,9 +4,8 @@ use serde_json::{Value, json};
 
 use super::walk::{MAX_DEPTH, PathFilter, walk};
 use crate::adapters::workspace::{Workspace, current_dir};
-use crate::runtime::tools::tool::{
-    Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits, blocking,
-};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, Traits as ToolTraits, blocking};
 
 /// The most files listed.
 const MAX_RESULTS: usize = 200;

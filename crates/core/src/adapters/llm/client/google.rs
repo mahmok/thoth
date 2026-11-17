@@ -14,9 +14,11 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::adapters::auth::Auth;
+use crate::domain::message::{Message, Reasoning, ToolCall};
+use crate::domain::shared::Usage;
 use crate::domain::thinking::Thinking;
 
-use super::chat::{Message, Reasoning, ToolCall, ToolCallBuffer, Usage};
+use super::chat::ToolCallBuffer;
 use super::{lowering, stream};
 
 use super::{
@@ -503,8 +505,8 @@ mod tests {
     use super::*;
     use crate::adapters::auth::store::Credentials as CredentialStore;
     use crate::adapters::auth::testing::MockServer;
-    use crate::adapters::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
     use crate::adapters::llm::client::{ToolChoice, ToolSpec};
+    use crate::domain::message::{FunctionCall, ToolCall, ToolCallKind};
     use crate::domain::provider::{Protocol, Provider};
     use serde_json::json;
 

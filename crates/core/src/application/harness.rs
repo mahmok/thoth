@@ -5,6 +5,7 @@ use crate::adapters::models::store::Models as ModelsStore;
 use crate::adapters::persona::{Info as PersonaInfo, Repository as PersonaRepository};
 use crate::application::login::LoginAttempt;
 use crate::application::model_refresh::ModelRefreshRun;
+use crate::application::ports::Clock;
 #[cfg(any(test, feature = "testing"))]
 use crate::application::ports::TurnRunner;
 use crate::application::session::Session;
@@ -53,6 +54,7 @@ pub enum HarnessEvent {
 /// The Sessions and what they share.
 pub struct Harness {
     builder: Arc<AgentBuilder>,
+    clock: Arc<dyn Clock>,
     credentials: Arc<CredentialStore>,
     files: Arc<FileReferences>,
     ids: ulid::Generator,
@@ -181,7 +183,7 @@ impl Harness {
             return false;
         };
         let agent = Arc::new(Arc::clone(&self.builder).build_root(session_id, found, Arc::clone(&self.personas)));
-        let session = Session::new(session_id, Box::new(TokioTurnRunner::new(agent)));
+        let session = Session::new(session_id, Box::new(TokioTurnRunner::new(agent)), Arc::clone(&self.clock));
         drop(self.sessions.insert(session_id, session));
         true
     }
@@ -245,6 +247,7 @@ impl Harness {
         Self {
             logins: services.logins,
             refresh: services.refresh,
+            clock: services.clock,
             credentials: services.credentials,
             files: services.files,
             models: services.models,
@@ -364,7 +367,8 @@ impl Harness {
     #[inline]
     /// Starts a Session with a given runner, for tests.
     pub fn start_session_with(&mut self, session_id: SessionId, runner: Box<dyn TurnRunner>) {
-        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(session_id, runner));
+        let clock = Arc::clone(&self.clock);
+        let _session = self.sessions.entry(session_id).or_insert_with(|| Session::new(session_id, runner, clock));
     }
 
     #[inline]

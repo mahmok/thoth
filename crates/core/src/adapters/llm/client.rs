@@ -31,8 +31,10 @@ use error::Failure as ClientError;
 use negotiation::Negotiation;
 use sse::EventStream;
 
-use chat::{ToolCall, Usage};
+use crate::domain::message::ToolCall;
 
+use crate::domain::message::Reasoning;
+use crate::domain::shared::Usage;
 use crate::domain::thinking::Thinking;
 
 use serde_json::Value;
@@ -68,7 +70,7 @@ impl ToolChoice {
 
 #[derive(Default, Debug)]
 pub struct CreateCompletionRequest<'data> {
-    pub messages: &'data [chat::Message],
+    pub messages: &'data [crate::domain::message::Message],
     pub thinking: Thinking,
     pub tool_choice: ToolChoice,
     pub tools: &'data [ToolSpec],
@@ -77,7 +79,7 @@ pub struct CreateCompletionRequest<'data> {
 #[derive(Default, Debug)]
 pub struct StreamedCompletion {
     pub cut_off: Option<String>,
-    pub reasoning: Vec<chat::Reasoning>,
+    pub reasoning: Vec<Reasoning>,
     pub text: String,
     pub tool_calls: Vec<ToolCall>,
     pub usage: Option<Usage>,

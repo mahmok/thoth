@@ -20,6 +20,7 @@ use crate::adapters::workspace::Workspace;
 use crate::application::harness::Harness;
 use crate::application::login::LoginAttempt;
 use crate::application::model_refresh::ModelRefreshRun;
+use crate::application::ports::SystemClock;
 use crate::composition::services::Services;
 use crate::persistence::get_db;
 use crate::runtime::agent_builder::AgentBuilder;
@@ -40,7 +41,13 @@ pub async fn start() -> anyhow::Result<Harness> {
     let workspace = Workspace::from_current_dir()?;
     let skills = load_skills(&workspace)?;
     let context = AgentContext::new(workspace.root()).with_agent_files().context("Failed to load AGENTS.md files")?;
-    let builder = AgentBuilder::new(Arc::clone(&store), Arc::clone(&models), workspace.clone(), context, skills);
+    let builder = AgentBuilder::new(
+        Arc::new(crate::adapters::llm::factory::Factory::new(Arc::clone(&store))),
+        Arc::clone(&models),
+        workspace.clone(),
+        context,
+        skills,
+    );
     let mut personas = PersonaRepository::default();
 
     personas.load().await.context("Failed to load personas")?;
@@ -49,6 +56,7 @@ pub async fn start() -> anyhow::Result<Harness> {
     let harness = Harness::new(Services {
         personas,
         builder,
+        clock: Arc::new(SystemClock),
         logins: LoginAttempt::new(Box::new(TokioLoginWorker::new(Arc::clone(&store))), Arc::clone(&store)),
         refresh: ModelRefreshRun::new(Box::new(TokioRefreshWorker::new(
             ModelFetcher::new(Arc::clone(&store)),

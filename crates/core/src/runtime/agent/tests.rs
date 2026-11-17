@@ -7,14 +7,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::*;
+use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::adapters::auth::testing::MockServer;
 use crate::adapters::llm::client::StreamedCompletion;
-use crate::adapters::llm::client::chat::{FunctionCall, ToolCall, ToolCallKind};
 use crate::adapters::llm::client::error::Failure as ClientError;
 use crate::adapters::llm::client::fake::Client as FakeClient;
-use crate::adapters::persona::Persona;
+use crate::adapters::llm::factory::Factory as ProductionFactory;
+use crate::domain::message::{FunctionCall, ToolCall, ToolCallKind};
+use crate::domain::persona::Persona;
 use crate::domain::provider::{LoginMethod, Model, ModelSpec, Protocol, Provider};
-use crate::runtime::tools::tool::{Description, Outcome as ToolResult, Tool, ToolContext, Traits as ToolTraits};
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{Description, Tool, ToolContext, Traits as ToolTraits};
 use crate::test::assert_empty;
 
 /// A Tool that echoes its argument. Every test Agent has it.
@@ -65,9 +68,8 @@ pub fn build(script: Vec<Result<StreamedCompletion, ClientError>>) -> (Agent, Fa
     let mut tools = ToolSet::new();
     tools.register(Echo).unwrap();
     let fake = FakeClient::new(script);
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory()))
+    let agent = Agent::new(Arc::new(crate::adapters::llm::client::fake::Factory::new(fake.clone())))
         .with_model(test_model())
-        .with_client(ProtocolClient::Fake(fake.clone()))
         .with_tools(tools);
     (agent, fake)
 }
@@ -126,7 +128,9 @@ async fn every_request_of_a_session_carries_its_id_across_a_model_switch() {
         Arc::new(Provider::new("gateway", "Gateway", LoginMethod::None, Protocol::Responses, server.url.clone()));
     let spec = |id: &str| ModelSpec::new(Arc::clone(&provider), Model::new(id));
     let session = SessionId::mint();
-    let agent = Agent::new(Arc::new(CredentialStore::in_memory())).with_session_id(session).with_model(spec("first"));
+    let agent = Agent::new(Arc::new(ProductionFactory::new(Arc::new(CredentialStore::in_memory()))))
+        .with_session_id(session)
+        .with_model(spec("first"));
 
     agent.respond("hi".into(), |_| {}).await.unwrap();
     agent.apply(AgentChange::SetModel(spec("second")));
@@ -156,9 +160,9 @@ fn clearing_the_conversation_ends_its_sub_agents() {
         .0
         .with_sub_agents(Arc::new(SubAgents::new(Delegation { max_per_session: 1, ..Delegation::default() })));
     let spawn = || {
-        agent
-            .sub_agents()
-            .spawn(&Persona::new("tester", "Tester", ""), || Agent::new(Arc::new(CredentialStore::in_memory())))
+        agent.sub_agents().spawn(&Persona::new("tester", "Tester", ""), || {
+            Agent::new(Arc::new(ProductionFactory::new(Arc::new(CredentialStore::in_memory()))))
+        })
     };
     assert_eq!(spawn().unwrap(), "tester-1");
     assert!(spawn().is_err(), "the Root agent's limit applies");

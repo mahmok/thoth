@@ -1,18 +1,18 @@
 #[cfg(any(test, feature = "testing"))]
-use crate::adapters::llm::client::protocol::ProtocolClient;
+use crate::adapters::llm::client::fake::Client as FakeClient;
+use crate::application::ports::ClientFactory;
 use alloc::sync::Arc;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::adapters::auth::store::Credentials as CredentialStore;
 use crate::adapters::context::AgentContext;
 use crate::adapters::models::store::Models as ModelsStore;
 use crate::adapters::persona::Repository as PersonaRepository;
-use crate::adapters::persona::{Persona, Selection};
 use crate::adapters::skills::SkillSet;
 use crate::adapters::tools;
 use crate::adapters::workspace::Workspace;
+use crate::domain::persona::{Persona, Selection};
 use crate::domain::provider::ModelSpec;
 use crate::domain::shared::SessionId;
 use crate::runtime::agent::delegation::Delegation;
@@ -21,24 +21,20 @@ use crate::runtime::agent::{Agent, AgentChange};
 use crate::runtime::tools::delegate::Delegate as DelegateTool;
 use crate::runtime::tools::message::Messenger as MessageTool;
 use crate::runtime::tools::tool_set::ToolSet;
-use crate::sync::MutexExt as _;
 
-#[cfg(any(test, feature = "testing"))]
-use crate::adapters::llm::client::fake::Client as FakeClient;
+use crate::sync::MutexExt as _;
 
 #[derive(Debug)]
 /// Builds Agents from Personas.
 pub struct AgentBuilder {
     context: AgentContext,
     delegation: Delegation,
-    /// Replies every built Agent takes from, in tests in place of a provider.
-    #[cfg(any(test, feature = "testing"))]
-    fake_client: Option<FakeClient>,
+    /// Builds the client of every model, in tests in place of a provider.
+    factory: Arc<dyn ClientFactory>,
     /// Whether each tool selection only reads. The answer depends on nothing else, so it is
     /// worked out once per selection.
     read_only: Mutex<HashMap<Selection, bool>>,
     skills: SkillSet,
-    store: Arc<CredentialStore>,
     models: Arc<dyn ModelsStore>,
     workspace: Workspace,
 }
@@ -50,7 +46,7 @@ impl AgentBuilder {
             .system_prompt
             .as_ref()
             .map_or_else(|| self.context.clone(), |prompt| self.context.clone().with_system_prompt(prompt));
-        let agent = Agent::new(Arc::clone(&self.store))
+        let agent = Agent::new(Arc::clone(&self.factory))
             .with_session_id(session)
             .with_name(&persona.name)
             .with_description(&persona.description)
@@ -68,11 +64,7 @@ impl AgentBuilder {
         if let Some(thinking) = persona.thinking {
             agent.apply(AgentChange::SetThinking(thinking));
         }
-        #[cfg(any(test, feature = "testing"))]
-        let finished = self.with_test_client(agent);
-        #[cfg(not(any(test, feature = "testing")))]
-        let finished = agent;
-        finished
+        agent
     }
 
     /// A new Agent playing `persona`, with a Conversation and settings of its own. It has no
@@ -127,22 +119,20 @@ impl AgentBuilder {
     #[inline]
     /// Creates a builder from what every Agent shares.
     pub fn new(
-        store: Arc<CredentialStore>,
+        factory: Arc<dyn ClientFactory>,
         models: Arc<dyn ModelsStore>,
         workspace: Workspace,
         context: AgentContext,
         skills: SkillSet,
     ) -> Self {
         Self {
-            store,
+            factory,
             models,
             workspace,
             context,
             skills,
             delegation: Delegation::default(),
             read_only: Mutex::default(),
-            #[cfg(any(test, feature = "testing"))]
-            fake_client: None,
         }
     }
 
@@ -164,16 +154,8 @@ impl AgentBuilder {
     #[inline]
     #[must_use]
     pub fn with_fake_client(mut self, fake: FakeClient) -> Self {
-        self.fake_client = Some(fake);
+        self.factory = Arc::new(crate::adapters::llm::client::fake::Factory::new(fake));
         self
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    fn with_test_client(&self, agent: Agent) -> Agent {
-        match self.fake_client.as_ref() {
-            Some(fake) => agent.with_client(ProtocolClient::Fake(fake.clone())),
-            None => agent,
-        }
     }
 }
 
@@ -196,9 +178,10 @@ fn skills_for(skill_set: &SkillSet, selection: &Selection) -> SkillSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::auth::store::Credentials as CredentialStore;
     use crate::adapters::llm::client::StreamedCompletion;
     use crate::adapters::llm::client::fake::Client as FakeClient;
-    use crate::adapters::llm::client::protocol::ProtocolClient;
+    use crate::adapters::llm::factory::Factory as ProductionFactory;
     use crate::adapters::models::store::InMemory as InMemoryModelsStore;
     use crate::adapters::persona::Repository as PersonaRepository;
     use crate::domain::provider::{Model, ModelSpec, Provider};
@@ -207,7 +190,7 @@ mod tests {
 
     fn builder(tree: &TempTree) -> AgentBuilder {
         AgentBuilder::new(
-            Arc::new(CredentialStore::in_memory()),
+            Arc::new(ProductionFactory::new(Arc::new(CredentialStore::in_memory()))),
             Arc::new(InMemoryModelsStore::default()),
             tree.workspace(),
             AgentContext::new(tree.path()),
@@ -219,8 +202,8 @@ mod tests {
         Arc::new(PersonaRepository::new())
     }
 
-    fn root_store() -> Arc<CredentialStore> {
-        Arc::new(CredentialStore::in_memory())
+    fn root_factory() -> Arc<dyn ClientFactory> {
+        Arc::new(crate::adapters::llm::client::fake::Factory::new(FakeClient::default()))
     }
 
     fn session() -> SessionId {
@@ -271,11 +254,9 @@ mod tests {
     async fn a_persona_system_prompt_is_sent_with_the_conversation() {
         let tree = TempTree::new("builder-prompt");
         let fake = FakeClient::new(vec![Ok(StreamedCompletion { text: "ok".into(), ..Default::default() })]);
-        let agent = builder(&tree)
-            .build(
-                &Persona::new("a", "A", "").with_system_prompt("be brief").with_model(Model::reference("ollama", "m")),
-            )
-            .with_client(ProtocolClient::Fake(fake.clone()));
+        let agent = builder(&tree).with_fake_client(fake.clone()).build(
+            &Persona::new("a", "A", "").with_system_prompt("be brief").with_model(Model::reference("ollama", "m")),
+        );
         agent.respond("hi".into(), |_| {}).await.unwrap();
         assert_eq!(fake.requests()[0].0, 2, "the system prompt, then the prompt");
     }
@@ -320,8 +301,8 @@ mod tests {
             registry(),
         );
         let tester = Persona::new("tester", "Tester", "");
-        root.sub_agents().spawn(&tester, || Agent::new(root_store())).unwrap();
-        root.sub_agents().spawn(&tester, || Agent::new(root_store())).unwrap_err();
+        root.sub_agents().spawn(&tester, || Agent::new(root_factory())).unwrap();
+        root.sub_agents().spawn(&tester, || Agent::new(root_factory())).unwrap_err();
 
         let other = builder.build_root(session(), &Persona::new("secretary", "Secretary", ""), registry());
         assert!(other.sub_agents().infos().is_empty(), "each root agent keeps its own sub-agents");

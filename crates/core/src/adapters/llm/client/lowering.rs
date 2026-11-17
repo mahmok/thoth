@@ -1,6 +1,6 @@
 //! Conversation lowering shared by the dialects.
 
-use super::chat::{Message, Role};
+use crate::domain::message::{Message, Role};
 
 /// What one dialect does with each kind of message.
 pub(super) trait Dialect<'message> {

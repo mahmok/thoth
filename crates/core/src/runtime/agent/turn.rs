@@ -13,15 +13,15 @@ use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use tokio_util::sync::CancellationToken;
 
 use super::{Agent, AgentEvent, Failure, Settings, until};
-use crate::adapters::llm::client::chat::{ToolCall, Usage};
-use crate::adapters::llm::client::{
-    CreateCompletionRequest, Delta, Llm as _, StreamedCompletion, ToolChoice, ToolSpec,
-};
+use crate::adapters::llm::client::{CreateCompletionRequest, Delta, StreamedCompletion, ToolChoice, ToolSpec};
 use crate::domain::conversation::budget::Elision;
 use crate::domain::conversation::budget::{Decision, Load, Request};
 use crate::domain::conversation::{Conversation, Turn};
-use crate::runtime::tools::tool::{Outcome as ToolResult, ProgressReport, ToolContext};
-use crate::runtime::types::{AgentMessage, AgentResponse};
+use crate::domain::message::{AgentMessage, ToolCall};
+use crate::domain::shared::Usage;
+use crate::domain::tool::Outcome as ToolResult;
+use crate::runtime::tools::tool::{ProgressReport, ToolContext};
+use crate::runtime::types::AgentResponse;
 
 /// How many steps before the limit the model starts being told that few are left.
 const STEPS_LEFT_WARNING: usize = 3;
@@ -299,7 +299,7 @@ impl Agent {
                         thinking: self.thinking(),
                         tool_choice,
                     },
-                    |delta| match delta {
+                    &mut |delta| match delta {
                         Delta::Text(text) => on_event(AgentEvent::Text(text.to_owned())),
                         Delta::Reasoning(text) => on_event(AgentEvent::Reasoning(text.to_owned())),
                     },

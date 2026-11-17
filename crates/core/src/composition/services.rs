@@ -6,11 +6,13 @@ use crate::adapters::models::store::Models as ModelsStore;
 use crate::adapters::persona::Repository as PersonaRepository;
 use crate::application::login::LoginAttempt;
 use crate::application::model_refresh::ModelRefreshRun;
+use crate::application::ports::Clock;
 use crate::runtime::agent_builder::AgentBuilder;
 
 #[derive(Debug)]
 pub struct Services {
     pub builder: AgentBuilder,
+    pub clock: Arc<dyn Clock>,
     pub credentials: Arc<CredentialStore>,
     pub files: Arc<FileReferences>,
     pub logins: LoginAttempt,

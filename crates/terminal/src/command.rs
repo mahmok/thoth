@@ -367,7 +367,7 @@ mod tests {
     use thoth_core::test::assert_empty;
     use thoth_core::test::scripted::Scripted;
 
-    use thoth_core::adapters::persona::Persona;
+    use thoth_core::domain::persona::Persona;
     use thoth_core::domain::transcript::Speaker;
 
     struct Fixture {

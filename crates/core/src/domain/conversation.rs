@@ -3,10 +3,9 @@ pub mod budget;
 /// Dropping bulky old tool output.
 pub(crate) mod elision;
 
-use crate::adapters::llm::client::chat::{Message, Reasoning, Role, ToolCall};
 use crate::domain::conversation::budget::Elision;
-use crate::runtime::tools::tool::Outcome as ToolResult;
-use crate::runtime::types::AgentMessage;
+use crate::domain::message::{AgentMessage, Message, Reasoning, Role, ToolCall};
+use crate::domain::tool::Outcome as ToolResult;
 
 #[derive(Default, Debug)]
 /// The messages sent to the model.
@@ -190,8 +189,7 @@ pub(crate) fn message_tokens(message: &Message) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::llm::client::chat::{FunctionCall, Reasoning, ToolCallKind};
-    use crate::test::assert_empty;
+    use crate::domain::message::{FunctionCall, Reasoning, ToolCallKind};
 
     fn roles(conversation: &Conversation) -> Vec<Role> {
         conversation.messages().iter().map(|m| m.role).collect()
@@ -273,7 +271,7 @@ mod tests {
         let messages = conversation.messages();
         assert!(messages.len() >= 4);
         assert_eq!(messages[1].reasoning, thought());
-        assert_empty(&messages[3].reasoning);
+        assert_eq!(messages[3].reasoning, Vec::new());
     }
 
     #[test]

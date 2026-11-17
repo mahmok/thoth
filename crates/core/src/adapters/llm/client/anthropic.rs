@@ -6,10 +6,12 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
 use crate::adapters::auth::Auth;
+use crate::domain::message::{Message, Reasoning, ToolCall};
+use crate::domain::shared::Usage;
 use crate::domain::thinking::Thinking;
 
 use super::body::Common;
-use super::chat::{Message, Reasoning, ToolCall, ToolCallBuffer, Usage};
+use super::chat::ToolCallBuffer;
 use super::{lowering, stream};
 
 use super::{
@@ -543,10 +545,10 @@ fn push_turn<'request>(turns: &mut Vec<WireMessage<'request>>, role: &'static st
 mod tests {
     use alloc::sync::Arc;
 
-    use super::super::chat::{FunctionCall, ToolCallKind};
     use super::super::stream::Adapter as _;
     use super::*;
     use crate::adapters::auth::store::Credentials as CredentialStore;
+    use crate::domain::message::{FunctionCall, ToolCallKind};
     use crate::domain::provider::{Model, ModelSpec, Protocol, Provider};
     use crate::domain::shared::SessionId;
 
